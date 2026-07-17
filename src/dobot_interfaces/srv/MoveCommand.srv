@@ -1,0 +1,22 @@
+# For movej, target is [j1, j2, j3, j4, j5, j6] in deg.
+# For movejp/movel/movep, target is [x, y, z, rx, ry, rz] in mm/deg.
+float64[6] target
+
+# User/tool coordinate indexes. Defaults are 0 when the request is left unset.
+int32 user
+int32 tool
+
+# Optional speed and acceleration ratios. Use 0 to apply node defaults or omit.
+int32 speed
+int32 acceleration
+
+# If true, wait for the controller command queue to finish by sending Sync().
+bool wait
+float64 timeout_sec
+---
+bool success
+int32 error_id
+string message
+string raw_reply
+string ik_reply
+float64[6] ik_joints

@@ -1,0 +1,12 @@
+---
+bool success
+string message
+bool feedback_valid
+bool connected
+int32 robot_mode
+string robot_mode_text
+float64 speed_scaling
+int32 enable_status
+int32 running_status
+int32 error_status
+float64 stamp_sec

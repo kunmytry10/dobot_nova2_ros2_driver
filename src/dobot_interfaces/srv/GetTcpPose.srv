@@ -1,0 +1,7 @@
+---
+# TCP pose is [x, y, z, rx, ry, rz].
+# Dobot units are preserved: x/y/z in mm, rx/ry/rz in degrees.
+bool success
+string message
+float64[6] pose
+float64 stamp_sec

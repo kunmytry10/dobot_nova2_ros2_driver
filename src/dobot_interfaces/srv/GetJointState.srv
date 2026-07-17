@@ -1,0 +1,6 @@
+---
+bool success
+string message
+float64[6] joints_deg
+float64[6] joints_rad
+float64 stamp_sec
