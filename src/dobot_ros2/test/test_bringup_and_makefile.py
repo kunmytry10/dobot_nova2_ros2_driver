@@ -83,6 +83,8 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "replay_mode: 'servoj'" in source
     assert "ros2 service call /teach_list dobot_interfaces/srv/TrajectoryList" in source
     assert "SHELL := /bin/bash" in source
+    assert "WS ?= $(CURDIR)" in source
+    assert "WS ?= /home/ros/ws" not in source
     assert "source /opt/ros/humble/setup.bash" in source
     assert "docker compose" not in source
     assert 'grep -E "^/tf$$|^/tf_static$$"' in source

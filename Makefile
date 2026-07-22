@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 .PHONY: build driver bringup rviz control-ui control-ui-only services topics tf frames state errors clear enable disable estop joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
 
-WS ?= /home/ros/ws
+WS ?= $(CURDIR)
 PARAMS ?= $(WS)/src/dobot_ros2/config/dobot_ros2.yaml
 U ?= 0
 T ?= 0
