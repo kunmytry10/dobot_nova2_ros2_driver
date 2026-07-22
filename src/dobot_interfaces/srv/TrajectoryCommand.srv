@@ -1,0 +1,26 @@
+# Trajectory name. Empty name generates a timestamped name for teach_start,
+# and uses the active recording name for teach_stop.
+string name
+
+# Only used by teach_start when the target file already exists.
+bool overwrite
+
+# Optional replay speed and acceleration ratios. Use 0 to apply node defaults.
+int32 speed
+int32 acceleration
+
+# Optional replay mode. Empty uses node default. Supported: movej, servoj.
+string replay_mode
+
+# If override_wait is false, replay uses the node default wait policy.
+bool override_wait
+bool wait
+float64 timeout_sec
+---
+bool success
+int32 error_id
+string message
+string trajectory_name
+string path
+uint32 point_count
+string raw_reply

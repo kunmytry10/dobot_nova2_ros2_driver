@@ -3,9 +3,17 @@ build/
 install/
 log/
 
+# Local device workspaces and runtime data
+orbbec_305/
+trajectories/
+
 # TF frame graph outputs
 frames_*.gv
 frames_*.pdf
+
+# Editor/project-local files
+.vscode/
+.ace-tool/
 
 # Python caches
 __pycache__/

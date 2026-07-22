@@ -34,6 +34,7 @@ make build
 make driver     # 纯 driver
 make bringup    # driver + robot_state_publisher（TF）
 make rviz       # driver + robot_state_publisher + RViz
+make control-ui # driver + robot_state_publisher + Web 控制台
 ```
 
 ## 常用命令
@@ -46,19 +47,88 @@ make rviz       # driver + robot_state_publisher + RViz
 | `make errors` | 查看报警 |
 | `make clear` | 清除报警 |
 | `make enable` / `make disable` | 上/下使能 |
+| `make estop` | 软件急停，调用 `EmergencyStop()` |
+| `make control-ui` | 启动完整 Web 控制台，可查看/复制 Joint 和 TCP、下发移动、夹爪和示教命令 |
+| `make control-ui-only` | 只启动 Web 控制台，连接已有 driver |
+| `make gripper-init` | 初始化 AG 夹爪 |
+| `make gripper-state` | 读取夹爪初始化、夹持和位置状态 |
+| `make gripper-open` / `make gripper-close` | 张开/闭合夹爪 |
+| `make gripper-move GRIPPER_OPENING_MM:=50 GRIPPER_FORCE_N:=80` | 按开口宽度和夹持力控制夹爪 |
+| `make teach-start TRAJ:=demo` | 进入拖拽示教并开始录点 |
+| `make teach-stop` | 停止示教并保存轨迹 |
+| `make teach-replay TRAJ:=demo` | 使用 `movej` 回放轨迹 |
+| `make teach-replay-servoj TRAJ:=demo` | 使用 `ServoJ` 平滑回放轨迹 |
+| `make teach-list` | 列出已保存轨迹 |
+| `make teach-delete TRAJ:=demo` | 删除轨迹 |
+| `make teach-status` | 查看示教录制状态 |
 | `make movej J:='[...]'` | 关节运动 |
 | `make movel P:='[...]'` | 直线运动 |
 | `make movep P:='[...]'` | 点位姿运动 |
 | `make tf` | 查看 TF topic |
+| `make topics` | 查看常用状态 topic |
 | `make frames` | 生成 TF 帧图 |
 | `make services` | 列出所有 service |
 
 运动参数默认值：`SPEED=2 ACC=2 WAIT=true TIMEOUT=20`。
 
+Web 控制台默认地址：`http://localhost:8080`。可用 `CONSOLE_PORT` 覆盖端口。
+
+示教命令变量：`TRAJ` 指定轨迹名，`OVERWRITE=true` 允许覆盖同名轨迹，`REPLAY_MODE` 可覆盖回放模式。
+
+## 常用 Topic
+
+| Topic | 类型 | 作用 |
+|---|---|---|
+| `/joint_states` | `sensor_msgs/msg/JointState` | 关节角，供 TF/RViz 和下游节点订阅 |
+| `/tcp_pose` | `std_msgs/msg/Float64MultiArray` | TCP 位姿 `[x,y,z,rx,ry,rz]` |
+| `/dobot_state` | `dobot_interfaces/msg/DobotState` | 机器人模式、使能、运行、报警等状态 |
+| `/gripper_state` | `dobot_interfaces/msg/GripperStatus` | 夹爪初始化、夹持、开口和是否夹住物体 |
+
+## 配置参数
+
+默认配置文件：
+
+```text
+src/dobot_ros2/config/dobot_ros2.yaml
+```
+
+当前配置按 Nova 2 写入厂家手册 V1.5 的标称参数：
+
+| 参数 | Nova 2 默认值 |
+|---|---|
+| `robot_model` | `Nova 2` |
+| `rated_payload_kg` | `2.0` |
+| `workspace_radius_mm` | `625.0` |
+| `max_tcp_speed_mps` | `1.6` |
+| `repeatability_mm` | `0.05` |
+| `max_joint_speed_deg_s` | 六轴均 `135.0` |
+| `joint_zero_deg` | `[0, 0, 0, 0, 0, 0]` |
+| `joint_lower_limits_deg` | `[-360, -180, -156, -360, -360, -360]` |
+| `joint_upper_limits_deg` | `[360, 180, 156, 360, 360, 360]` |
+| `teach_trajectory_dir` | `/home/ros/ws/trajectories` |
+| `teach_sample_rate_hz` | `5.0` |
+| `teach_min_joint_delta_deg` | `0.5` |
+| `teach_min_tcp_delta_mm` | `1.0` |
+| `teach_replay_speed` / `teach_replay_acc` | `10` / `10` |
+| `teach_replay_mode` | `movej` |
+| `teach_servoj_rate_hz` | `33.0` |
+| `teach_servoj_t` / `teach_servoj_lookahead_time` / `teach_servoj_gain` | `0.1` / `50.0` / `500.0` |
+| `gripper_enabled` / `gripper_transport` | `true` / `dobot_modbus` |
+| `gripper_modbus_ip` / `gripper_modbus_port` | `127.0.0.1` / `60000` |
+| `gripper_port` | `/dev/ttyUSB0`（仅 `local_serial` 使用） |
+| `gripper_baudrate` / `gripper_slave_id` | `115200` / `1` |
+| `gripper_stroke_mm` / `gripper_max_force_n` | `95.0` / `160.0` |
+| `gripper_default_force_percent` | `50` |
+| `gripper_state_rate_hz` | `2.0` |
+
+`joint_limit_check` 默认开启。`movej` 会在下发前检查目标关节角，`movel`/`movejp`/`movep` 会检查 IK 解出的关节角。若现场控制器配置了更小的软件限位、使用 Nova 5、或工具负载发生变化，需要同步修改这个 YAML。
+
+AG-160-95-W-S 夹爪通过机械臂末端 RS485 接入，默认使用 Dobot 控制器的 Modbus-RTU 转发控制。位置命令支持 `GRIPPER_OPENING_MM`，也支持 `GRIPPER_POS` 千分比；夹持力支持 `GRIPPER_FORCE` 百分比或 `GRIPPER_FORCE_N` 牛顿值，最终会映射到厂家 20-100% 力值寄存器。夹持状态 `2` 表示夹住物体，`3` 表示物体掉落。若改为 USB-RS485 直连电脑调试，可将 `gripper_transport` 改为 `local_serial` 并配置 `gripper_port`。
+
 ## 包结构
 
 | 包 | 内容 |
 |---|---|
-| `dobot_interfaces` | 自定义 srv（MoveCommand / GetRobotState 等） |
+| `dobot_interfaces` | 自定义 msg/srv（DobotState / GripperStatus / MoveCommand 等） |
 | `dobot_description` | URDF 模型和 STL mesh |
 | `dobot_ros2` | 驱动节点、launch 文件、RViz 配置 |

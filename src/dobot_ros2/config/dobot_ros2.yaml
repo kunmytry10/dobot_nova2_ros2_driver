@@ -15,6 +15,22 @@
     default_speed_l: 0
     default_acc_l: 0
 
+    # Dobot Nova 2 specs from the Nova user manual V1.5.
+    # Joint and Cartesian command units remain deg and mm.
+    robot_model: "Nova 2"
+    rated_payload_kg: 2.0
+    workspace_radius_mm: 625.0
+    max_tcp_speed_mps: 1.6
+    repeatability_mm: 0.05
+    max_joint_speed_deg_s: [135.0, 135.0, 135.0, 135.0, 135.0, 135.0]
+
+    # Mechanical zero and joint ranges for Nova 2.
+    joint_zero_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    joint_lower_limits_deg: [-360.0, -180.0, -156.0, -360.0, -360.0, -360.0]
+    joint_upper_limits_deg: [360.0, 180.0, 156.0, 360.0, 360.0, 360.0]
+    joint_limit_check: true
+    joint_limit_margin_deg: 0.0
+
     connect_on_start: true
     enable_on_start: false
     wait_for_motion: false
@@ -29,6 +45,38 @@
 
     ik_check: true
     ik_use_joint_near: true
+
+    teach_trajectory_dir: "/home/ros/ws/trajectories"
+    teach_sample_rate_hz: 5.0
+    teach_min_joint_delta_deg: 0.5
+    teach_min_tcp_delta_mm: 1.0
+    teach_replay_speed: 10
+    teach_replay_acc: 10
+    teach_replay_wait: true
+    teach_replay_timeout_sec: 20.0
+    teach_replay_mode: "movej"
+    teach_servoj_rate_hz: 33.0
+    teach_servoj_t: 0.1
+    teach_servoj_lookahead_time: 50.0
+    teach_servoj_gain: 500.0
+
+    # DH Robotics AG-160-95-W-S gripper, Modbus-RTU over RS485.
+    gripper_enabled: true
+    gripper_transport: "dobot_modbus"
+    gripper_modbus_ip: "127.0.0.1"
+    gripper_modbus_port: 60000
+    gripper_modbus_index: -1
+    gripper_port: "/dev/ttyUSB0"
+    gripper_baudrate: 115200
+    gripper_slave_id: 1
+    gripper_timeout_sec: 0.2
+    gripper_stroke_mm: 95.0
+    gripper_max_force_n: 160.0
+    gripper_default_force_percent: 50
+    gripper_min_force_percent: 20
+    gripper_max_force_percent: 100
+    gripper_auto_connect: true
+    gripper_state_rate_hz: 2.0
 
     feedback_rate_hz: 20.0
     joint_names: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]

@@ -1,0 +1,13 @@
+bool connected
+bool feedback_valid
+float64 stamp_sec
+int32 robot_mode
+string robot_mode_text
+float64 speed_scaling
+int32 enable_status
+int32 running_status
+int32 error_status
+int32 drag_status
+int32 record_button_signal
+float64[6] q_target
+float64[6] tcp_target

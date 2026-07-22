@@ -1,0 +1,13 @@
+bool enabled
+bool connected
+bool success
+string message
+int32 init_state
+int32 grip_state
+int32 position_permille
+float64 opening_mm
+int32 force_percent
+bool initialized
+bool moving
+bool object_detected
+bool object_dropped

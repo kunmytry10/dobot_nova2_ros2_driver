@@ -3,6 +3,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Tuple
 
@@ -181,6 +182,21 @@ class ControllerConfig:
     default_acc_j: int = 0
     default_speed_l: int = 0
     default_acc_l: int = 0
+    robot_model: str = "Nova 2"
+    rated_payload_kg: float = 2.0
+    workspace_radius_mm: float = 625.0
+    max_tcp_speed_mps: float = 1.6
+    repeatability_mm: float = 0.05
+    joint_zero_deg: List[float] = field(default_factory=lambda: [0.0] * 6)
+    joint_lower_limits_deg: List[float] = field(
+        default_factory=lambda: [-360.0, -180.0, -156.0, -360.0, -360.0, -360.0]
+    )
+    joint_upper_limits_deg: List[float] = field(
+        default_factory=lambda: [360.0, 180.0, 156.0, 360.0, 360.0, 360.0]
+    )
+    max_joint_speed_deg_s: List[float] = field(default_factory=lambda: [135.0] * 6)
+    joint_limit_check: bool = True
+    joint_limit_margin_deg: float = 0.0
     command_timeout_sec: float = 3.0
     motion_timeout_sec: float = 30.0
     wait_for_motion: bool = False
@@ -193,6 +209,19 @@ class ControllerConfig:
     ik_check: bool = True
     ik_use_joint_near: bool = True
     enable_on_start: bool = False
+    teach_trajectory_dir: str = "/home/ros/ws/trajectories"
+    teach_sample_rate_hz: float = 5.0
+    teach_min_joint_delta_deg: float = 0.5
+    teach_min_tcp_delta_mm: float = 1.0
+    teach_replay_speed: int = 10
+    teach_replay_acc: int = 10
+    teach_replay_wait: bool = True
+    teach_replay_timeout_sec: float = 20.0
+    teach_replay_mode: str = "movej"
+    teach_servoj_rate_hz: float = 33.0
+    teach_servoj_t: float = 0.1
+    teach_servoj_lookahead_time: float = 50.0
+    teach_servoj_gain: float = 500.0
 
 
 @dataclass
@@ -208,6 +237,8 @@ class FeedbackState:
     enable_status: int = 0
     running_status: int = 0
     error_status: int = 0
+    drag_status: int = 0
+    record_button_signal: int = 0
     stamp: float = 0.0
 
 
@@ -235,6 +266,19 @@ class DashboardResult:
     values: List[int] = field(default_factory=list)
 
 
+@dataclass
+class TeachResult:
+    """Normalized result for teach record/replay operations."""
+
+    success: bool
+    error_id: int = -1
+    message: str = ""
+    trajectory_name: str = ""
+    path: str = ""
+    point_count: int = 0
+    raw_reply: str = ""
+
+
 class DobotController:
     """Owns the Dobot TCP clients and serializes motion command traffic."""
 
@@ -256,6 +300,12 @@ class DobotController:
         self._state_lock = threading.Lock()
         self._client_lock = threading.RLock()
         self._command_lock = threading.Lock()
+        self._teach_lock = threading.RLock()
+        self._teach_thread: Optional[threading.Thread] = None
+        self._teach_recording = False
+        self._teach_name = ""
+        self._teach_started_at = 0.0
+        self._teach_points: List[dict] = []
 
     def connect(self) -> None:
         with self._client_lock:
@@ -319,6 +369,385 @@ class DobotController:
     def disable_robot(self) -> DashboardResult:
         return self._dashboard_command("DisableRobot()", "disable_robot")
 
+    def emergency_stop(self) -> DashboardResult:
+        return self._dashboard_command("EmergencyStop()", "emergency_stop")
+
+    def dashboard_command(self, command: str, label: str) -> DashboardResult:
+        return self._dashboard_command(command, label)
+
+    def teach_start(self, name: str = "", overwrite: bool = False) -> TeachResult:
+        with self._teach_lock:
+            if self._teach_recording:
+                return TeachResult(
+                    False,
+                    message=f"teach recording already active: {self._teach_name}",
+                    trajectory_name=self._teach_name,
+                    point_count=len(self._teach_points),
+                )
+
+            trajectory_name = self._normalize_trajectory_name(name)
+            path = self._trajectory_path(trajectory_name)
+            if path.exists() and not overwrite:
+                return TeachResult(
+                    False,
+                    message=f"trajectory already exists: {trajectory_name}",
+                    trajectory_name=trajectory_name,
+                    path=str(path),
+                )
+
+            ready = self._check_ready_for_motion()
+            if not ready.success:
+                return TeachResult(
+                    False,
+                    ready.error_id,
+                    ready.message,
+                    trajectory_name,
+                    str(path),
+                )
+
+            drag = self._dashboard_command("StartDrag()", "teach_start")
+            if not drag.success:
+                return TeachResult(
+                    False,
+                    drag.error_id,
+                    drag.message,
+                    trajectory_name,
+                    str(path),
+                    raw_reply=drag.raw_reply,
+                )
+
+            self._teach_recording = True
+            self._teach_name = trajectory_name
+            self._teach_started_at = time.time()
+            self._teach_points = []
+            self._teach_thread = threading.Thread(target=self._teach_record_loop, daemon=True)
+            self._teach_thread.start()
+            return TeachResult(
+                True,
+                0,
+                f"teach recording started: {trajectory_name}",
+                trajectory_name,
+                str(path),
+                raw_reply=drag.raw_reply,
+            )
+
+    def teach_stop(self, name: str = "") -> TeachResult:
+        with self._teach_lock:
+            if not self._teach_recording:
+                return TeachResult(False, message="teach recording is not active")
+            trajectory_name = self._normalize_trajectory_name(name or self._teach_name)
+            self._teach_recording = False
+
+        if self._teach_thread is not None:
+            self._teach_thread.join(timeout=2.0)
+            self._teach_thread = None
+
+        drag = self._dashboard_command("StopDrag()", "teach_stop")
+        with self._teach_lock:
+            points = list(self._teach_points)
+            self._teach_name = ""
+            self._teach_started_at = 0.0
+            self._teach_points = []
+
+        path = self._trajectory_path(trajectory_name)
+        if not points:
+            return TeachResult(
+                False,
+                drag.error_id if drag.error_id != 0 else -1,
+                "teach recording stopped but no feedback points were captured",
+                trajectory_name,
+                str(path),
+                raw_reply=drag.raw_reply,
+            )
+
+        try:
+            self._save_trajectory(trajectory_name, points, path)
+        except Exception as exc:
+            return TeachResult(
+                False,
+                -1,
+                f"failed to save trajectory: {exc}",
+                trajectory_name,
+                str(path),
+                len(points),
+                drag.raw_reply,
+            )
+
+        if not drag.success:
+            message = f"trajectory saved, but StopDrag failed: {drag.message}"
+            error_id = drag.error_id
+        else:
+            message = f"teach recording saved: {trajectory_name}"
+            error_id = 0
+        return TeachResult(
+            drag.success,
+            error_id,
+            message,
+            trajectory_name,
+            str(path),
+            len(points),
+            drag.raw_reply,
+        )
+
+    def teach_replay(
+        self,
+        name: str,
+        speed: int = 0,
+        acceleration: int = 0,
+        replay_mode: str = "",
+        wait: Optional[bool] = None,
+        timeout_sec: float = 0.0,
+    ) -> TeachResult:
+        trajectory_name = self._normalize_trajectory_name(name, generate=False)
+        if not trajectory_name:
+            return TeachResult(False, message="trajectory name is required")
+
+        path = self._trajectory_path(trajectory_name)
+        try:
+            trajectory = self._load_trajectory(path)
+        except Exception as exc:
+            return TeachResult(
+                False,
+                message=f"failed to load trajectory: {exc}",
+                path=str(path),
+            )
+
+        points = trajectory.get("points", [])
+        if not points:
+            return TeachResult(
+                False,
+                message="trajectory contains no points",
+                trajectory_name=trajectory_name,
+                path=str(path),
+            )
+
+        replay_speed = int(speed) if int(speed) > 0 else int(self.config.teach_replay_speed)
+        replay_acc = (
+            int(acceleration)
+            if int(acceleration) > 0
+            else int(self.config.teach_replay_acc)
+        )
+        replay_wait = self.config.teach_replay_wait if wait is None else bool(wait)
+        timeout = float(timeout_sec or self.config.teach_replay_timeout_sec)
+        mode = self._teach_replay_mode(replay_mode)
+
+        if mode == "servoj":
+            return self._teach_replay_servoj(
+                trajectory_name,
+                path,
+                points,
+                replay_speed,
+                replay_acc,
+                timeout,
+            )
+        if mode != "movej":
+            return TeachResult(
+                False,
+                message=f"unsupported teach replay mode: {mode}",
+                trajectory_name=trajectory_name,
+                path=str(path),
+                point_count=len(points),
+            )
+
+        first_joints = points[0]["joints_deg"]
+        result = self.move(
+            "movej",
+            first_joints,
+            speed=replay_speed,
+            acceleration=replay_acc,
+            wait=True,
+            timeout_sec=timeout,
+        )
+        if not result.success:
+            return TeachResult(
+                False,
+                result.error_id,
+                f"failed to move to trajectory start: {result.message}",
+                trajectory_name,
+                str(path),
+                len(points),
+                result.raw_reply,
+            )
+
+        raw_replies = [result.raw_reply]
+        for point in points[1:]:
+            result = self.move(
+                "movej",
+                point["joints_deg"],
+                speed=replay_speed,
+                acceleration=replay_acc,
+                wait=replay_wait,
+                timeout_sec=timeout,
+            )
+            raw_replies.append(result.raw_reply)
+            if not result.success:
+                return TeachResult(
+                    False,
+                    result.error_id,
+                    f"trajectory replay stopped: {result.message}",
+                    trajectory_name,
+                    str(path),
+                    len(points),
+                    " | ".join(raw_replies[-3:]),
+                )
+
+        return TeachResult(
+            True,
+            0,
+            f"trajectory replay accepted: {trajectory_name}",
+            trajectory_name,
+            str(path),
+            len(points),
+            " | ".join(raw_replies[-3:]),
+        )
+
+    def _teach_replay_servoj(
+        self,
+        trajectory_name: str,
+        path: Path,
+        points: Sequence[dict],
+        speed: int,
+        acceleration: int,
+        timeout_sec: float,
+    ) -> TeachResult:
+        for point in points:
+            limit_result = self._check_joint_limits(
+                "servoj",
+                point["joints_deg"],
+                point["joints_deg"],
+            )
+            if not limit_result.success:
+                return TeachResult(
+                    False,
+                    limit_result.error_id,
+                    limit_result.message,
+                    trajectory_name,
+                    str(path),
+                    len(points),
+                )
+
+        first_joints = points[0]["joints_deg"]
+        result = self.move(
+            "movej",
+            first_joints,
+            speed=speed,
+            acceleration=acceleration,
+            wait=True,
+            timeout_sec=timeout_sec,
+        )
+        if not result.success:
+            return TeachResult(
+                False,
+                result.error_id,
+                f"failed to move to trajectory start: {result.message}",
+                trajectory_name,
+                str(path),
+                len(points),
+                result.raw_reply,
+            )
+
+        try:
+            samples = self._resample_teach_points(points, self.config.teach_servoj_rate_hz)
+            sent_count = self._send_servoj_samples(samples)
+        except Exception as exc:
+            return TeachResult(
+                False,
+                -1,
+                f"servoj replay failed: {exc}",
+                trajectory_name,
+                str(path),
+                len(points),
+                result.raw_reply,
+            )
+
+        state = self.latest_state()
+        if state.error_status or state.robot_mode == ERROR_ROBOT_MODE:
+            error_detail = self.get_error_id()
+            return TeachResult(
+                False,
+                error_detail.value if error_detail.value else -1,
+                (
+                    "servoj replay sent but robot entered error status; "
+                    f"{error_detail.message}"
+                ),
+                trajectory_name,
+                str(path),
+                len(points),
+                error_detail.raw_reply,
+            )
+
+        return TeachResult(
+            True,
+            0,
+            (
+                f"trajectory servoj replay sent: {trajectory_name}; "
+                f"samples={sent_count}"
+            ),
+            trajectory_name,
+            str(path),
+            len(points),
+            result.raw_reply,
+        )
+
+    def teach_delete(self, name: str) -> TeachResult:
+        trajectory_name = self._normalize_trajectory_name(name, generate=False)
+        if not trajectory_name:
+            return TeachResult(False, message="trajectory name is required")
+        path = self._trajectory_path(trajectory_name)
+        if not path.exists():
+            return TeachResult(
+                False,
+                message=f"trajectory not found: {trajectory_name}",
+                trajectory_name=trajectory_name,
+                path=str(path),
+            )
+        try:
+            path.unlink()
+        except Exception as exc:
+            return TeachResult(
+                False,
+                message=f"failed to delete trajectory: {exc}",
+                trajectory_name=trajectory_name,
+                path=str(path),
+            )
+        return TeachResult(
+            True,
+            0,
+            f"trajectory deleted: {trajectory_name}",
+            trajectory_name,
+            str(path),
+        )
+
+    def teach_list(self) -> List[TeachResult]:
+        directory = self._trajectory_dir()
+        results = []
+        if not directory.exists():
+            return results
+        for path in sorted(directory.glob("*.json")):
+            try:
+                data = self._load_trajectory(path)
+                name = str(data.get("name") or path.stem)
+                points = data.get("points", [])
+                results.append(
+                    TeachResult(True, 0, "trajectory", name, str(path), len(points))
+                )
+            except Exception:
+                results.append(
+                    TeachResult(False, -1, "invalid trajectory", path.stem, str(path))
+                )
+        return results
+
+    def teach_status(self) -> TeachResult:
+        with self._teach_lock:
+            return TeachResult(
+                True,
+                0,
+                "teach recording active" if self._teach_recording else "teach recording idle",
+                self._teach_name,
+                str(self._trajectory_path(self._teach_name)) if self._teach_name else "",
+                len(self._teach_points),
+            )
+
     def robot_mode(self) -> DashboardResult:
         result = self._dashboard_command("RobotMode()", "robot_mode")
         mode = self._first_braced_int(result.raw_reply)
@@ -368,6 +797,10 @@ class DobotController:
             ik_result = self._check_ik(kind, target, effective_user, effective_tool)
             if not ik_result.success:
                 return ik_result
+
+            limit_result = self._check_joint_limits(kind, target, ik_result.ik_joints)
+            if not limit_result.success:
+                return limit_result
 
             command_started_at = time.time()
             command_target = ik_result.ik_joints if kind == "movep" else target
@@ -483,6 +916,8 @@ class DobotController:
                     enable_status=int(packet["enable_status"][0]),
                     running_status=int(packet["running_status"][0]),
                     error_status=int(packet["error_status"][0]),
+                    drag_status=int(packet["drag_status"][0]),
+                    record_button_signal=int(packet["record_button_signal"][0]),
                     stamp=time.time(),
                 )
                 with self._state_lock:
@@ -624,6 +1059,56 @@ class DobotController:
                 raw_reply=mode_result.raw_reply,
             )
         return MotionResult(True, error_id=0, message="robot mode check passed")
+
+    def _check_joint_limits(
+        self,
+        kind: str,
+        target: Sequence[float],
+        ik_joints: Sequence[float],
+    ) -> MotionResult:
+        if not self.config.joint_limit_check:
+            return MotionResult(True, error_id=0, message="joint limit check disabled")
+
+        if kind == "movej":
+            joints = target
+            source = "target"
+        elif len(ik_joints) >= 6:
+            joints = ik_joints
+            source = "ik_solution"
+        else:
+            return MotionResult(True, error_id=0, message="no joint target to check")
+
+        lower = self.config.joint_lower_limits_deg
+        upper = self.config.joint_upper_limits_deg
+        if len(lower) < 6 or len(upper) < 6:
+            return MotionResult(
+                False,
+                error_id=-1,
+                message="configured joint limits must contain 6 lower and 6 upper values",
+            )
+
+        margin = max(0.0, float(self.config.joint_limit_margin_deg))
+        violations = []
+        for index, value in enumerate(joints[:6]):
+            low = float(lower[index]) - margin
+            high = float(upper[index]) + margin
+            joint_value = float(value)
+            if joint_value < low or joint_value > high:
+                violations.append(
+                    f"joint{index + 1}={joint_value:.3f} not in "
+                    f"[{float(lower[index]):.3f},{float(upper[index]):.3f}] deg"
+                )
+
+        if violations:
+            return MotionResult(
+                False,
+                error_id=-1,
+                message=(
+                    f"{kind} {source} outside configured joint limits: "
+                    + "; ".join(violations)
+                ),
+            )
+        return MotionResult(True, error_id=0, message="joint limit check passed")
 
     def _check_post_motion_state(
         self,
@@ -947,6 +1432,233 @@ class DobotController:
             details.append("empty reply after reconnect")
 
         return "; ".join(details)
+
+    def _teach_record_loop(self) -> None:
+        period = (
+            1.0 / self.config.teach_sample_rate_hz
+            if self.config.teach_sample_rate_hz > 0
+            else 0.2
+        )
+        last_point = None
+        while True:
+            with self._teach_lock:
+                if not self._teach_recording:
+                    return
+                started_at = self._teach_started_at
+
+            state = self.latest_state()
+            if state.stamp >= started_at and len(state.joints) >= 6:
+                point = {
+                    "t": max(0.0, state.stamp - started_at),
+                    "stamp": state.stamp,
+                    "joints_deg": [float(value) for value in state.joints[:6]],
+                    "tcp_pose": [float(value) for value in state.tcp_pose[:6]],
+                }
+                if self._should_record_teach_point(point, last_point):
+                    with self._teach_lock:
+                        if self._teach_recording:
+                            self._teach_points.append(point)
+                            last_point = point
+            time.sleep(period)
+
+    def _should_record_teach_point(self, point: dict, last_point: Optional[dict]) -> bool:
+        if last_point is None:
+            return True
+        joint_delta = _max_abs_delta(point["joints_deg"], last_point["joints_deg"])
+        tcp_delta = _max_abs_delta(point["tcp_pose"][:3], last_point["tcp_pose"][:3])
+        return (
+            joint_delta >= float(self.config.teach_min_joint_delta_deg)
+            or tcp_delta >= float(self.config.teach_min_tcp_delta_mm)
+        )
+
+    def _teach_replay_mode(self, requested_mode: str) -> str:
+        mode = str(requested_mode or self.config.teach_replay_mode or "movej")
+        return mode.strip().lower()
+
+    def _resample_teach_points(
+        self,
+        points: Sequence[dict],
+        rate_hz: float,
+    ) -> List[List[float]]:
+        if not points:
+            return []
+
+        rate = float(rate_hz)
+        if rate <= 0.0:
+            raise ValueError("teach_servoj_rate_hz must be greater than 0")
+
+        times = self._trajectory_times(points)
+        total_time = times[-1] if times else 0.0
+        if total_time <= 0.0 or len(points) == 1:
+            return [[float(value) for value in points[0]["joints_deg"][:6]]]
+
+        period = 1.0 / rate
+        samples = []
+        index = 0
+        target_time = 0.0
+        while target_time < total_time:
+            while index + 1 < len(times) and times[index + 1] < target_time:
+                index += 1
+            samples.append(self._interpolate_joints(points, times, index, target_time))
+            target_time += period
+
+        samples.append([float(value) for value in points[-1]["joints_deg"][:6]])
+        return samples
+
+    def _trajectory_times(self, points: Sequence[dict]) -> List[float]:
+        times = []
+        monotonic = True
+        for index, point in enumerate(points):
+            value = float(point.get("t", 0.0))
+            if index and value < times[-1]:
+                monotonic = False
+            times.append(value)
+
+        if monotonic and times and times[-1] > 0.0:
+            first = times[0]
+            return [max(0.0, value - first) for value in times]
+
+        period = (
+            1.0 / self.config.teach_sample_rate_hz
+            if self.config.teach_sample_rate_hz > 0
+            else 0.2
+        )
+        return [index * period for index in range(len(points))]
+
+    def _interpolate_joints(
+        self,
+        points: Sequence[dict],
+        times: Sequence[float],
+        index: int,
+        target_time: float,
+    ) -> List[float]:
+        if index + 1 >= len(points):
+            return [float(value) for value in points[-1]["joints_deg"][:6]]
+
+        start_time = times[index]
+        end_time = times[index + 1]
+        if end_time <= start_time:
+            ratio = 0.0
+        else:
+            ratio = (target_time - start_time) / (end_time - start_time)
+        ratio = min(1.0, max(0.0, ratio))
+
+        start = points[index]["joints_deg"]
+        end = points[index + 1]["joints_deg"]
+        return [
+            float(start_value) + (float(end_value) - float(start_value)) * ratio
+            for start_value, end_value in zip(start[:6], end[:6])
+        ]
+
+    def _send_servoj_samples(self, samples: Sequence[Sequence[float]]) -> int:
+        if not samples:
+            return 0
+
+        rate = float(self.config.teach_servoj_rate_hz)
+        if rate <= 0.0:
+            raise ValueError("teach_servoj_rate_hz must be greater than 0")
+        period = 1.0 / rate
+
+        t = float(self.config.teach_servoj_t)
+        lookahead_time = float(self.config.teach_servoj_lookahead_time)
+        gain = float(self.config.teach_servoj_gain)
+        self._validate_servoj_options(t, lookahead_time, gain)
+
+        self.connect()
+        sent_count = 0
+        try:
+            for joints in samples:
+                command = self._build_servoj_command(joints, t, lookahead_time, gain)
+                self._send_move_without_reply(command)
+                sent_count += 1
+                time.sleep(period)
+        finally:
+            try:
+                self._reconnect_move_client()
+            except Exception as exc:
+                self._log(f"move channel reconnect after servoj replay failed: {exc}")
+        return sent_count
+
+    def _validate_servoj_options(
+        self,
+        t: float,
+        lookahead_time: float,
+        gain: float,
+    ) -> None:
+        if not 0.02 <= t <= 3600.0:
+            raise ValueError("teach_servoj_t must be within 0.02..3600.0")
+        if not 20.0 <= lookahead_time <= 100.0:
+            raise ValueError("teach_servoj_lookahead_time must be within 20.0..100.0")
+        if not 200.0 <= gain <= 1000.0:
+            raise ValueError("teach_servoj_gain must be within 200.0..1000.0")
+
+    def _build_servoj_command(
+        self,
+        joints: Sequence[float],
+        t: float,
+        lookahead_time: float,
+        gain: float,
+    ) -> str:
+        return (
+            f"ServoJ({_format_values(joints)},"
+            f"t={t:.6f},lookahead_time={lookahead_time:.6f},gain={gain:.6f})"
+        )
+
+    def _send_move_without_reply(self, command: str) -> None:
+        with self._command_lock:
+            if self.move_client is None:
+                raise RuntimeError("move client is not connected")
+            socket_obj = getattr(self.move_client, "socket_dobot", None)
+            if socket_obj in (None, 0):
+                raise RuntimeError("move socket is not connected")
+            socket_obj.sendall(str.encode(command, "utf-8"))
+
+    def _save_trajectory(self, name: str, points: Sequence[dict], path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "name": name,
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "robot_model": self.config.robot_model,
+            "sample_rate_hz": self.config.teach_sample_rate_hz,
+            "joint_names": [f"joint{index}" for index in range(1, 7)],
+            "joint_zero_deg": self.config.joint_zero_deg,
+            "joint_lower_limits_deg": self.config.joint_lower_limits_deg,
+            "joint_upper_limits_deg": self.config.joint_upper_limits_deg,
+            "points": list(points),
+        }
+        with path.open("w", encoding="utf-8") as file:
+            json.dump(data, file, ensure_ascii=False, indent=2)
+            file.write("\n")
+
+    def _load_trajectory(self, path: Path) -> dict:
+        with path.open(encoding="utf-8") as file:
+            data = json.load(file)
+        points = data.get("points")
+        if not isinstance(points, list):
+            raise ValueError("trajectory points must be a list")
+        for index, point in enumerate(points):
+            joints = point.get("joints_deg") if isinstance(point, dict) else None
+            if not isinstance(joints, list) or len(joints) < 6:
+                raise ValueError(f"trajectory point {index} does not contain 6 joints")
+        return data
+
+    def _trajectory_dir(self) -> Path:
+        return Path(self.config.teach_trajectory_dir).expanduser()
+
+    def _trajectory_path(self, name: str) -> Path:
+        filename = self._normalize_trajectory_name(name, generate=False) or name
+        return self._trajectory_dir() / f"{filename}.json"
+
+    def _normalize_trajectory_name(self, name: str, generate: bool = True) -> str:
+        text = str(name or "").strip()
+        if text.endswith(".json"):
+            text = text[:-5]
+        text = re.sub(r"[^A-Za-z0-9_.-]+", "_", text).strip("._")
+        if text:
+            return text
+        if not generate:
+            return ""
+        return datetime.now(timezone.utc).strftime("teach_%Y%m%d_%H%M%S")
 
     def _log(self, message: str) -> None:
         if self.log_callback is not None:

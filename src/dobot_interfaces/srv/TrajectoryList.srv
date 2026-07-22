@@ -1,0 +1,6 @@
+---
+bool success
+string message
+string[] names
+string[] paths
+uint32[] point_counts

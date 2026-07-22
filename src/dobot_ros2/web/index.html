@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dobot Control Console</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Dobot Control Console</h1>
+        <p id="connectionLine">Waiting for ROS state...</p>
+      </div>
+      <button class="danger" id="emergencyStop">Emergency Stop</button>
+    </header>
+
+    <main class="layout">
+      <section class="panel status-panel">
+        <h2>Status</h2>
+        <div class="status-grid">
+          <div><span>Mode</span><strong id="robotMode">-</strong></div>
+          <div><span>Enabled</span><strong id="enableStatus">-</strong></div>
+          <div><span>Running</span><strong id="runningStatus">-</strong></div>
+          <div><span>Error</span><strong id="errorStatus">-</strong></div>
+          <div><span>Drag</span><strong id="dragStatus">-</strong></div>
+          <div><span>Speed</span><strong id="speedScaling">-</strong></div>
+        </div>
+        <div class="button-row">
+          <button data-trigger="enable_robot">Enable</button>
+          <button data-trigger="disable_robot">Disable</button>
+          <button data-trigger="clear_error">Clear Error</button>
+          <button data-trigger="get_error_id">Get Errors</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>Joint State</h2>
+          <button class="secondary compact" id="copyJoints" type="button">Copy</button>
+        </div>
+        <div id="jointList" class="metric-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>TCP Pose</h2>
+          <button class="secondary compact" id="copyTcp" type="button">Copy</button>
+        </div>
+        <div id="tcpList" class="metric-list"></div>
+      </section>
+
+      <section class="panel wide">
+        <h2>Gripper</h2>
+        <div class="status-grid gripper-grid">
+          <div><span>Init</span><strong id="gripperInit">-</strong></div>
+          <div><span>Grip</span><strong id="gripperGrip">-</strong></div>
+          <div><span>Opening</span><strong id="gripperOpening">-</strong></div>
+          <div><span>Force</span><strong id="gripperForce">-</strong></div>
+          <div><span>Object</span><strong id="gripperObject">-</strong></div>
+          <div><span>Connected</span><strong id="gripperConnected">-</strong></div>
+        </div>
+        <div class="form-grid gripper-form">
+          <label>Opening mm
+            <input id="gripperOpeningInput" type="number" value="50" min="0" max="95" step="1" />
+          </label>
+          <label>Force %
+            <input id="gripperForceInput" type="number" value="20" min="20" max="100" />
+          </label>
+          <label>Force N
+            <input id="gripperForceNInput" type="number" value="-1" min="-1" max="160" step="1" />
+          </label>
+          <label>Timeout
+            <input id="gripperTimeout" type="number" value="20" min="0" step="0.5" />
+          </label>
+          <label class="check">
+            <input id="gripperWait" type="checkbox" checked />
+            Wait
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="gripperInitButton">Init</button>
+          <button id="gripperOpen">Open</button>
+          <button id="gripperClose">Close</button>
+          <button id="gripperMove">Move</button>
+        </div>
+      </section>
+
+      <section class="panel wide">
+        <h2>Move Command</h2>
+        <div class="form-grid">
+          <label>Mode
+            <select id="moveKind">
+              <option value="movej">movej</option>
+              <option value="movejp">movejp</option>
+              <option value="movel">movel</option>
+              <option value="movep">movep</option>
+            </select>
+          </label>
+          <label>Target
+            <input id="moveTarget" placeholder="j1,j2,j3,j4,j5,j6 or x,y,z,rx,ry,rz" />
+          </label>
+          <label>Speed
+            <input id="moveSpeed" type="number" value="2" min="0" max="100" />
+          </label>
+          <label>Acc
+            <input id="moveAcc" type="number" value="2" min="0" max="100" />
+          </label>
+          <label>Timeout
+            <input id="moveTimeout" type="number" value="20" min="0" step="0.5" />
+          </label>
+          <label class="check">
+            <input id="moveWait" type="checkbox" checked />
+            Wait
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="sendMove">Send Move</button>
+        </div>
+      </section>
+
+      <section class="panel wide">
+        <h2>Teach</h2>
+        <div class="form-grid">
+          <label>Trajectory
+            <input id="trajectoryName" placeholder="demo" />
+          </label>
+          <label>Replay Mode
+            <select id="replayMode">
+              <option value="movej">movej</option>
+              <option value="servoj">servoj</option>
+            </select>
+          </label>
+          <label>Speed
+            <input id="teachSpeed" type="number" value="5" min="0" max="100" />
+          </label>
+          <label>Acc
+            <input id="teachAcc" type="number" value="5" min="0" max="100" />
+          </label>
+          <label>Timeout
+            <input id="teachTimeout" type="number" value="30" min="0" step="0.5" />
+          </label>
+          <label class="check">
+            <input id="overwriteTrajectory" type="checkbox" />
+            Overwrite
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="teachStart">Start Teach</button>
+          <button id="teachStop">Stop Teach</button>
+          <button id="teachReplay">Replay</button>
+          <button id="teachDelete">Delete</button>
+          <button id="refreshTrajectories">Refresh</button>
+        </div>
+      </section>
+
+      <section class="panel wide">
+        <h2>Trajectories</h2>
+        <div id="trajectoryList" class="trajectory-list"></div>
+      </section>
+
+      <section class="panel wide">
+        <h2>Result Log</h2>
+        <pre id="resultLog"></pre>
+      </section>
+    </main>
+
+    <script src="/app.js?v=gripper-topic-v1"></script>
+  </body>
+</html>

@@ -16,6 +16,7 @@ setup(
         (f"share/{package_name}/launch", glob("launch/*.py")),
         (f"share/{package_name}/rviz", glob("rviz/*.rviz")),
         (f"share/{package_name}/files", glob("files/*.json")),
+        (f"share/{package_name}/web", glob("web/*")),
     ],
     install_requires=["setuptools", "numpy"],
     zip_safe=True,
@@ -26,6 +27,7 @@ setup(
     entry_points={
         "console_scripts": [
             "dobot_motion_server = dobot_ros2.driver_node:main",
+            "dobot_control_console = dobot_ros2.control_console:main",
         ],
     },
 )
