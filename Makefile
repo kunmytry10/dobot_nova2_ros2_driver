@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: build driver bringup rviz control-ui control-ui-only services topics tf frames state errors clear enable disable estop joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
+.PHONY: build driver bringup rviz control-ui control-ui-only services topics tf frames state errors clear enable disable estop joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move camera camera-topics camera-info handeye-check handeye-capture handeye-solve handeye-tf teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
 
 WS ?= $(CURDIR)
 PARAMS ?= $(WS)/src/dobot_ros2/config/dobot_ros2.yaml
@@ -21,6 +21,11 @@ GRIPPER_OPENING_MM ?= -1.0
 GRIPPER_POS ?= 1000
 GRIPPER_FORCE ?= 50
 GRIPPER_FORCE_N ?= -1.0
+CAMERA_LAUNCH ?= gemini_330_series.launch.py
+HANDEYE_SAMPLES_DIR ?= handeye_samples
+HANDEYE_RESULT_FILE ?= handeye_result.yaml
+HANDEYE_PARENT_FRAME ?= Link6
+HANDEYE_CHILD_FRAME ?= camera_color_optical_frame
 
 ROS_SETUP = source /opt/ros/humble/setup.bash
 ROS_ENV = $(ROS_SETUP) && cd $(WS) && source install/setup.bash
@@ -93,6 +98,27 @@ gripper-close:
 
 gripper-move:
 	$(ROS_ENV) && ros2 service call /gripper_move dobot_interfaces/srv/GripperCommand "{opening_mm: $(GRIPPER_OPENING_MM), position_permille: $(GRIPPER_POS), force_percent: $(GRIPPER_FORCE), force_n: $(GRIPPER_FORCE_N), wait: $(WAIT), timeout_sec: $(TIMEOUT)}"
+
+camera:
+	$(ROS_ENV) && ros2 launch orbbec_camera $(CAMERA_LAUNCH)
+
+camera-topics:
+	$(ROS_ENV) && ros2 topic list | grep -E "^/camera/"
+
+camera-info:
+	$(ROS_ENV) && ros2 topic echo /camera/color/camera_info --once
+
+handeye-check:
+	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_check --ros-args --params-file $(PARAMS)
+
+handeye-capture:
+	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_capture --ros-args --params-file $(PARAMS)
+
+handeye-solve:
+	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_solve --samples-dir $(HANDEYE_SAMPLES_DIR) --result-file $(HANDEYE_RESULT_FILE) --parent-frame $(HANDEYE_PARENT_FRAME) --child-frame $(HANDEYE_CHILD_FRAME)
+
+handeye-tf:
+	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_tf --result-file $(HANDEYE_RESULT_FILE)
 
 teach-start:
 	$(ROS_ENV) && ros2 service call /teach_start dobot_interfaces/srv/TrajectoryCommand "{name: '$(TRAJ)', overwrite: $(OVERWRITE)}"

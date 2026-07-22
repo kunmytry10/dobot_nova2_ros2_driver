@@ -60,6 +60,24 @@
     teach_servoj_lookahead_time: 50.0
     teach_servoj_gain: 500.0
 
+    # Eye-in-hand calibration for Gemini305 mounted on the wrist/flange.
+    handeye:
+      image_topic: "/camera/color/image_raw"
+      camera_info_topic: "/camera/color/camera_info"
+      base_frame: "base_link"
+      flange_frame: "Link6"
+      camera_frame: "camera_color_optical_frame"
+      samples_dir: "handeye_samples"
+      result_file: "handeye_result.yaml"
+      board:
+        type: "charuco"
+        dictionary: "DICT_4X4_50"
+        squares_x: 12
+        squares_y: 9
+        square_length_m: 0.015
+        marker_length_m: 0.01125
+        min_charuco_corners: 12
+
     # DH Robotics AG-160-95-W-S gripper, Modbus-RTU over RS485.
     gripper_enabled: true
     gripper_transport: "dobot_modbus"

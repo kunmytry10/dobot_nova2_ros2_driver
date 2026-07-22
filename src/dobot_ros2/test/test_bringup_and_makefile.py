@@ -52,6 +52,13 @@ def test_project_makefile_wraps_common_ros_workflows():
         "gripper-open:",
         "gripper-close:",
         "gripper-move:",
+        "camera:",
+        "camera-topics:",
+        "camera-info:",
+        "handeye-check:",
+        "handeye-capture:",
+        "handeye-solve:",
+        "handeye-tf:",
         "teach-start:",
         "teach-stop:",
         "teach-replay:",
@@ -74,7 +81,14 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "CONSOLE_PORT ?= 8080" in source
     assert "GRIPPER_FORCE ?= 50" in source
     assert "GRIPPER_FORCE_N ?= -1.0" in source
+    assert "CAMERA_LAUNCH ?= gemini_330_series.launch.py" in source
+    assert "HANDEYE_RESULT_FILE ?= handeye_result.yaml" in source
     assert "dobot_control_console.launch.py" in source
+    assert "ros2 launch orbbec_camera $(CAMERA_LAUNCH)" in source
+    assert "ros2 run dobot_ros2 dobot_handeye_check" in source
+    assert "ros2 run dobot_ros2 dobot_handeye_capture" in source
+    assert "ros2 run dobot_ros2 dobot_handeye_solve" in source
+    assert "ros2 run dobot_ros2 dobot_handeye_tf" in source
     assert "ros2 service call /emergency_stop std_srvs/srv/Trigger" in source
     assert "ros2 service call /gripper_move dobot_interfaces/srv/GripperCommand" in source
     assert "force_n: $(GRIPPER_FORCE_N)" in source
@@ -93,6 +107,20 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "^/gripper_state$$" in source
 
 
+def test_handeye_config_documents_camera_topics_and_board():
+    source = (PACKAGE_ROOT / "config" / "dobot_ros2.yaml").read_text()
+
+    assert "handeye:" in source
+    assert "/camera/color/image_raw" in source
+    assert "/camera/color/camera_info" in source
+    assert "camera_color_optical_frame" in source
+    assert "Link6" in source
+    assert "squares_x: 12" in source
+    assert "squares_y: 9" in source
+    assert "square_length_m: 0.015" in source
+    assert "marker_length_m: 0.01125" in source
+
+
 def test_control_console_launch_and_package_entrypoint_are_installed():
     launch = PACKAGE_ROOT / "launch" / "dobot_control_console.launch.py"
     setup = (PACKAGE_ROOT / "setup.py").read_text()
@@ -104,6 +132,15 @@ def test_control_console_launch_and_package_entrypoint_are_installed():
     assert "console_port" in source
     assert "dobot_control_console = dobot_ros2.control_console:main" in setup
     assert 'share/{package_name}/web' in setup
+
+
+def test_handeye_console_entrypoints_are_installed():
+    setup = (PACKAGE_ROOT / "setup.py").read_text()
+
+    assert "dobot_handeye_check = dobot_ros2.handeye_check:main" in setup
+    assert "dobot_handeye_capture = dobot_ros2.handeye_capture:main" in setup
+    assert "dobot_handeye_solve = dobot_ros2.handeye_solve:main" in setup
+    assert "dobot_handeye_tf = dobot_ros2.handeye_tf:main" in setup
 
 
 def test_control_console_serializes_ros_numpy_arrays():
