@@ -15,6 +15,7 @@ import tf2_ros
 
 from dobot_ros2.handeye_common import (
     create_charuco_board,
+    make_aruco_dictionary,
     matrix_to_transform_dict,
     node_handeye_config,
     transform_to_matrix,
@@ -27,7 +28,7 @@ class HandeyeCaptureNode(Node):
         self.config = node_handeye_config(self)
         self.bridge = CvBridge()
         self.board = create_charuco_board(self.config["board"])
-        self.dictionary = self.board.getDictionary()
+        self.dictionary = make_aruco_dictionary(self.config["board"]["dictionary"])
         self.samples_dir = Path(self.config["samples_dir"])
         self.samples_dir.mkdir(parents=True, exist_ok=True)
         self.min_corners = int(self.config["board"].get("min_charuco_corners", 12))

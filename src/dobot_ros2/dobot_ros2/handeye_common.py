@@ -93,10 +93,22 @@ def create_charuco_board(board_config):
     import cv2
 
     dictionary = make_aruco_dictionary(board_config["dictionary"])
-    size = (int(board_config["squares_x"]), int(board_config["squares_y"]))
+    squares_x = int(board_config["squares_x"])
+    squares_y = int(board_config["squares_y"])
+    size = (squares_x, squares_y)
     square_length = float(board_config["square_length_m"])
     marker_length = float(board_config["marker_length_m"])
-    return cv2.aruco.CharucoBoard(size, square_length, marker_length, dictionary)
+    if hasattr(cv2.aruco, "CharucoBoard"):
+        return cv2.aruco.CharucoBoard(size, square_length, marker_length, dictionary)
+    if hasattr(cv2.aruco, "CharucoBoard_create"):
+        return cv2.aruco.CharucoBoard_create(
+            squares_x,
+            squares_y,
+            square_length,
+            marker_length,
+            dictionary,
+        )
+    raise HandeyeConfigError("OpenCV ArUco module does not support ChArUco boards")
 
 
 def transform_to_matrix(transform):
