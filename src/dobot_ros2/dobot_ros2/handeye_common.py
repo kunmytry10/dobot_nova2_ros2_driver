@@ -20,7 +20,7 @@ DEFAULT_HANDEYE_CONFIG = {
     "result_file": "handeye_result.yaml",
     "board": {
         "type": "charuco",
-        "dictionary": "DICT_4X4_50",
+        "dictionary": "DICT_5X5_100",
         "squares_x": 12,
         "squares_y": 9,
         "square_length_m": 0.015,

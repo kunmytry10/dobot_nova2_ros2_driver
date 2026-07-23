@@ -53,6 +53,20 @@ def load_samples(samples_dir):
     return samples
 
 
+def samples_dir_from_dataset(dataset, samples_dir):
+    if dataset:
+        return str(Path(dataset) / "samples")
+    return samples_dir
+
+
+def default_result_file(dataset, result_file):
+    if result_file:
+        return result_file
+    if dataset:
+        return str(Path(dataset) / "result.yaml")
+    return "handeye_result.yaml"
+
+
 def save_result(result_file, matrix, sample_count, parent_frame, child_frame):
     data = matrix_to_transform_dict(matrix)
     payload = {
@@ -69,16 +83,19 @@ def save_result(result_file, matrix, sample_count, parent_frame, child_frame):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Solve Dobot eye-in-hand calibration")
+    parser.add_argument("--dataset", default=None)
     parser.add_argument("--samples-dir", default="handeye_samples")
-    parser.add_argument("--result-file", default="handeye_result.yaml")
+    parser.add_argument("--result-file", default=None)
     parser.add_argument("--parent-frame", default="Link6")
     parser.add_argument("--child-frame", default="camera_color_optical_frame")
     args, _ = parser.parse_known_args(argv)
 
-    samples = load_samples(args.samples_dir)
+    samples_dir = samples_dir_from_dataset(args.dataset, args.samples_dir)
+    result_file = default_result_file(args.dataset, args.result_file)
+    samples = load_samples(samples_dir)
     result = solve_handeye_from_samples(samples)
     payload = save_result(
-        args.result_file,
+        result_file,
         result,
         len(samples),
         args.parent_frame,

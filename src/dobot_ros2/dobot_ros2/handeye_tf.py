@@ -7,6 +7,8 @@ from rclpy.node import Node
 from tf2_ros import StaticTransformBroadcaster
 import yaml
 
+from dobot_ros2.handeye_solve import default_result_file
+
 
 def load_result(path):
     data = yaml.safe_load(Path(path).read_text()) or {}
@@ -48,11 +50,12 @@ class HandeyeTfNode(Node):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Publish Dobot hand-eye static TF")
-    parser.add_argument("--result-file", default="handeye_result.yaml")
+    parser.add_argument("--dataset", default=None)
+    parser.add_argument("--result-file", default=None)
     args, ros_args = parser.parse_known_args(argv)
 
     rclpy.init(args=ros_args)
-    node = HandeyeTfNode(args.result_file)
+    node = HandeyeTfNode(default_result_file(args.dataset, args.result_file))
     try:
         rclpy.spin(node)
     finally:

@@ -58,8 +58,9 @@ make control-ui # driver + robot_state_publisher + Web 控制台
 | `make camera-topics` | 查看 `/camera` 下的相机 topic |
 | `make camera-info` | 读取一次 `/camera/color/camera_info` |
 | `make handeye-check` | 检查手眼标定需要的 Dobot 和相机 topic |
-| `make handeye-capture` | 进入手眼标定采样，稳定后按 Enter 保存一组样本 |
-| `make handeye-solve` | 根据采样结果求解 `Link6 -> camera_color_optical_frame` |
+| `make handeye-capture` | 创建手眼标定数据集，稳定后按 Enter 保存样本、图像和位姿 |
+| `make handeye-solve DATASET:=...` | 根据数据集求解 `Link6 -> camera_color_optical_frame` |
+| `make handeye-validate DATASET:=...` | 验证各样本反推的固定标定板位姿误差 |
 | `make handeye-tf` | 发布手眼标定结果 static TF |
 | `make teach-start TRAJ:=demo` | 进入拖拽示教并开始录点 |
 | `make teach-stop` | 停止示教并保存轨迹 |
@@ -134,23 +135,43 @@ make handeye-check
 make handeye-capture
 ```
 
-建议采 15-30 组。每组需要能清楚看到标定板的大部分区域，不是只看某一个格子。姿态要有明显旋转变化：正对、左偏、右偏、上偏、下偏、近一点、远一点、绕相机光轴旋转一点。
-
-采样完成后输入 `q` 退出采样，求解并发布 TF：
-
-```bash
-make handeye-solve
-make handeye-tf
-```
-
-默认样本目录和结果文件：
+启动后终端会打印本次数据集目录，例如：
 
 ```text
-handeye_samples/
-handeye_result.yaml
+handeye dataset: handeye_datasets/20260723_153012
 ```
 
-如果检测不到标定板，优先检查光照、反光、画面模糊、距离过远、标定板没有完整入画。当前默认 ArUco dictionary 是 `DICT_4X4_50`；如果现场一直检测失败，需要根据标定板说明书或实际检测结果修改 `handeye.board.dictionary`。
+每按一次 Enter 会保存一组样本，包括原始 color 图、debug 图、`base_link -> Link6`、`board -> camera_color_optical_frame`、相机内参和检测角点数量：
+
+```text
+handeye_datasets/20260723_153012/
+  dataset.yaml
+  samples/
+    sample_001.json
+    sample_001_color.png
+    sample_001_debug.png
+```
+
+建议采 15-30 组。每组需要能清楚看到标定板的大部分区域，不是只看某一个格子。姿态要有明显旋转变化：正对、左偏、右偏、上偏、下偏、近一点、远一点、绕相机光轴旋转一点。
+
+采样完成后输入 `q` 退出采样。把终端打印的数据集目录填到 `DATASET`：
+
+```bash
+make handeye-solve DATASET:=handeye_datasets/20260723_153012
+make handeye-validate DATASET:=handeye_datasets/20260723_153012
+make handeye-tf DATASET:=handeye_datasets/20260723_153012
+```
+
+求解和验证会写入：
+
+```text
+handeye_datasets/20260723_153012/result.yaml
+handeye_datasets/20260723_153012/validation.yaml
+```
+
+`handeye-validate` 会输出每组样本反推出的 `base_link -> board` 一致性误差。标定板固定不动时，误差越小说明手眼结果越稳定；重点看 `translation_rms_mm`、`translation_max_mm`、`rotation_rms_deg` 和 `worst_sample_id`。
+
+如果检测不到标定板，优先检查光照、反光、画面模糊、距离过远、标定板没有完整入画。CC200-15-11.25 当前按 `DICT_5X5_100`、`12 x 9`、`15mm / 11.25mm` 配置。
 
 ## 配置参数
 
@@ -192,7 +213,7 @@ src/dobot_ros2/config/dobot_ros2.yaml
 | `handeye.camera_info_topic` | `/camera/color/camera_info` |
 | `handeye.base_frame` / `handeye.flange_frame` | `base_link` / `Link6` |
 | `handeye.camera_frame` | `camera_color_optical_frame` |
-| `handeye.board.dictionary` | `DICT_4X4_50` |
+| `handeye.board.dictionary` | `DICT_5X5_100` |
 | `handeye.board.squares_x` / `handeye.board.squares_y` | `12` / `9` |
 | `handeye.board.square_length_m` / `handeye.board.marker_length_m` | `0.015` / `0.01125` |
 

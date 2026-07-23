@@ -6,6 +6,9 @@ log/
 # Local device workspaces and runtime data
 orbbec_305/
 trajectories/
+handeye_datasets/
+handeye_samples/
+handeye_result.yaml
 
 # TF frame graph outputs
 frames_*.gv

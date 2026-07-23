@@ -58,6 +58,7 @@ def test_project_makefile_wraps_common_ros_workflows():
         "handeye-check:",
         "handeye-capture:",
         "handeye-solve:",
+        "handeye-validate:",
         "handeye-tf:",
         "teach-start:",
         "teach-stop:",
@@ -82,12 +83,14 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "GRIPPER_FORCE ?= 50" in source
     assert "GRIPPER_FORCE_N ?= -1.0" in source
     assert "CAMERA_LAUNCH ?= gemini_330_series.launch.py" in source
-    assert "HANDEYE_RESULT_FILE ?= handeye_result.yaml" in source
+    assert "HANDEYE_DATASET_ROOT ?= handeye_datasets" in source
+    assert "HANDEYE_RESULT_FILE ?=" in source
     assert "dobot_control_console.launch.py" in source
     assert "ros2 launch orbbec_camera $(CAMERA_LAUNCH)" in source
     assert "ros2 run dobot_ros2 dobot_handeye_check" in source
     assert "ros2 run dobot_ros2 dobot_handeye_capture" in source
     assert "ros2 run dobot_ros2 dobot_handeye_solve" in source
+    assert "ros2 run dobot_ros2 dobot_handeye_validate" in source
     assert "ros2 run dobot_ros2 dobot_handeye_tf" in source
     assert "ros2 service call /emergency_stop std_srvs/srv/Trigger" in source
     assert "ros2 service call /gripper_move dobot_interfaces/srv/GripperCommand" in source
@@ -119,6 +122,7 @@ def test_handeye_config_documents_camera_topics_and_board():
     assert "squares_y: 9" in source
     assert "square_length_m: 0.015" in source
     assert "marker_length_m: 0.01125" in source
+    assert 'dictionary: "DICT_5X5_100"' in source
 
 
 def test_control_console_launch_and_package_entrypoint_are_installed():
@@ -140,6 +144,7 @@ def test_handeye_console_entrypoints_are_installed():
     assert "dobot_handeye_check = dobot_ros2.handeye_check:main" in setup
     assert "dobot_handeye_capture = dobot_ros2.handeye_capture:main" in setup
     assert "dobot_handeye_solve = dobot_ros2.handeye_solve:main" in setup
+    assert "dobot_handeye_validate = dobot_ros2.handeye_validate:main" in setup
     assert "dobot_handeye_tf = dobot_ros2.handeye_tf:main" in setup
 
 

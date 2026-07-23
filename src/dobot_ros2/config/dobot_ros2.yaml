@@ -67,16 +67,16 @@
       base_frame: "base_link"
       flange_frame: "Link6"
       camera_frame: "camera_color_optical_frame"
-      samples_dir: "handeye_samples"
+      samples_dir: "handeye_datasets"
       result_file: "handeye_result.yaml"
       board:
         type: "charuco"
-        dictionary: "DICT_4X4_50"
+        dictionary: "DICT_5X5_100"
         squares_x: 12
         squares_y: 9
         square_length_m: 0.015
         marker_length_m: 0.01125
-        min_charuco_corners: 12
+        min_charuco_corners: 4
 
     # DH Robotics AG-160-95-W-S gripper, Modbus-RTU over RS485.
     gripper_enabled: true
