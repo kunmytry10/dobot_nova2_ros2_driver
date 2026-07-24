@@ -34,6 +34,7 @@ setup(
             "dobot_handeye_validate = dobot_ros2.handeye_validate:main",
             "dobot_handeye_diagnose = dobot_ros2.handeye_diagnose:main",
             "dobot_handeye_tf = dobot_ros2.handeye_tf:main",
+            "dobot_handeye_board_tf = dobot_ros2.handeye_board_tf:main",
         ],
     },
 )

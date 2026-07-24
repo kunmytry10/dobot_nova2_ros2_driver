@@ -16,6 +16,7 @@ DEFAULT_HANDEYE_CONFIG = {
     "base_frame": "base_link",
     "flange_frame": "Link6",
     "camera_frame": "camera_color_optical_frame",
+    "board_frame": "handeye_board",
     "samples_dir": "handeye_samples",
     "result_file": "handeye_result.yaml",
     "board": {
@@ -59,6 +60,7 @@ def node_handeye_config(node):
         "base_frame",
         "flange_frame",
         "camera_frame",
+        "board_frame",
         "samples_dir",
         "result_file",
     ):

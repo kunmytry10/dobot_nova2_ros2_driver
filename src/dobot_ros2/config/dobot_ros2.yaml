@@ -67,6 +67,7 @@
       base_frame: "base_link"
       flange_frame: "Link6"
       camera_frame: "camera_color_optical_frame"
+      board_frame: "handeye_board"
       samples_dir: "handeye_datasets"
       result_file: "handeye_result.yaml"
       board:

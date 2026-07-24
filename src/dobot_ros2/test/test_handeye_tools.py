@@ -29,6 +29,7 @@ def test_load_handeye_config_uses_meter_units_and_defaults():
     assert config["base_frame"] == "base_link"
     assert config["flange_frame"] == "Link6"
     assert config["camera_frame"] == "camera_color_optical_frame"
+    assert config["board_frame"] == "handeye_board"
     assert config["board"]["squares_x"] == 12
     assert config["board"]["squares_y"] == 9
     assert config["board"]["square_length_m"] == 0.015

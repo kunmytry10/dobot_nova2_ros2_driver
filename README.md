@@ -63,6 +63,7 @@ make control-ui # driver + robot_state_publisher + Web 控制台
 | `make handeye-validate DATASET:=...` | 验证各样本反推的固定标定板位姿误差 |
 | `make handeye-diagnose DATASET:=...` | 对比多种手眼算法，并逐个剔除样本检查可疑点 |
 | `make handeye-tf` | 发布手眼标定结果 static TF |
+| `make handeye-board-tf` | 实时识别 ChArUco 标定板，发布 `camera_color_optical_frame -> handeye_board` |
 | `make teach-start TRAJ:=demo` | 进入拖拽示教并开始录点 |
 | `make teach-stop` | 停止示教并保存轨迹 |
 | `make teach-replay TRAJ:=demo` | 使用 `movej` 回放轨迹 |
@@ -162,6 +163,7 @@ make handeye-solve DATASET:=handeye_datasets/20260723_153012
 make handeye-validate DATASET:=handeye_datasets/20260723_153012
 make handeye-diagnose DATASET:=handeye_datasets/20260723_153012
 make handeye-tf DATASET:=handeye_datasets/20260723_153012
+make handeye-board-tf
 ```
 
 求解和验证会写入：
@@ -175,6 +177,8 @@ handeye_datasets/20260723_153012/diagnose.yaml
 `handeye-validate` 会输出每组样本反推出的 `base_link -> board` 一致性误差。标定板固定不动时，误差越小说明手眼结果越稳定；重点看 `translation_rms_mm`、`translation_max_mm`、`rotation_rms_deg` 和 `worst_sample_id`。
 
 `handeye-diagnose` 用同一份数据集分别尝试 `TSAI`、`PARK`、`HORAUD`、`ANDREFF`、`DANIILIDIS`，并做 leave-one-out 检查：每次只移除一个样本重新求解和验证。优先看 `best_method`、`methods` 和 `leave_one_out` 前几项；如果移除某个样本后 RMS 明显降低，这个样本才更像真正坏点。
+
+`handeye-board-tf` 用在线相机画面实时识别标定板，并发布动态 TF `camera_color_optical_frame -> handeye_board`。配合 `make rviz` 和 `make handeye-tf` 可以在 RViz 里观察标定板 frame：机械臂从不同角度看同一块固定板时，`handeye_board` 在 `base_link` 下应基本不动。
 
 如果检测不到标定板，优先检查光照、反光、画面模糊、距离过远、标定板没有完整入画。CC200-15-11.25 当前按 `DICT_5X5_100`、`12 x 9`、`15mm / 11.25mm` 配置。
 

@@ -61,6 +61,7 @@ def test_project_makefile_wraps_common_ros_workflows():
         "handeye-validate:",
         "handeye-diagnose:",
         "handeye-tf:",
+        "handeye-board-tf:",
         "teach-start:",
         "teach-stop:",
         "teach-replay:",
@@ -96,6 +97,7 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "ros2 run dobot_ros2 dobot_handeye_validate" in source
     assert "ros2 run dobot_ros2 dobot_handeye_diagnose" in source
     assert "ros2 run dobot_ros2 dobot_handeye_tf" in source
+    assert "ros2 run dobot_ros2 dobot_handeye_board_tf" in source
     assert "ros2 service call /emergency_stop std_srvs/srv/Trigger" in source
     assert "ros2 service call /gripper_move dobot_interfaces/srv/GripperCommand" in source
     assert "force_n: $(GRIPPER_FORCE_N)" in source
@@ -121,6 +123,7 @@ def test_handeye_config_documents_camera_topics_and_board():
     assert "/camera/color/image_raw" in source
     assert "/camera/color/camera_info" in source
     assert "camera_color_optical_frame" in source
+    assert 'board_frame: "handeye_board"' in source
     assert "Link6" in source
     assert "squares_x: 12" in source
     assert "squares_y: 9" in source
@@ -151,6 +154,7 @@ def test_handeye_console_entrypoints_are_installed():
     assert "dobot_handeye_validate = dobot_ros2.handeye_validate:main" in setup
     assert "dobot_handeye_diagnose = dobot_ros2.handeye_diagnose:main" in setup
     assert "dobot_handeye_tf = dobot_ros2.handeye_tf:main" in setup
+    assert "dobot_handeye_board_tf = dobot_ros2.handeye_board_tf:main" in setup
 
 
 def test_control_console_serializes_ros_numpy_arrays():
