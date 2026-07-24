@@ -5,6 +5,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = PACKAGE_ROOT.parents[2]
 WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
 HANDEYE_PACKAGE_ROOT = WORKSPACE_ROOT / "src" / "dobot_handeye"
+CAMERA_PACKAGE_ROOT = WORKSPACE_ROOT / "src" / "dobot_camera"
 
 
 def test_bringup_launch_is_runtime_entrypoint_with_optional_rviz():
@@ -90,13 +91,18 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "GRIPPER_FORCE ?= 50" in source
     assert "GRIPPER_FORCE_N ?= -1.0" in source
     assert "CAMERA_LAUNCH ?= gemini_330_series.launch.py" in source
+    assert "CAMERA_NAME ?= camera" in source
+    assert "CAMERA_SERIAL ?=" in source
+    assert "CAMERA_USB_PORT ?=" in source
     assert "HANDEYE_DATASET_ROOT ?= handeye_datasets" in source
     assert "HANDEYE_RESULT_FILE ?=" in source
     assert "HANDEYE_DIAGNOSE_FILE ?=" in source
     assert "HANDEYE_METHOD ?= TSAI" in source
     assert "HANDEYE_STATIC_TF_FILE ?= $(WS)/handeye_result.yaml" in source
     assert "dobot_control_console.launch.py" in source
-    assert "ros2 launch orbbec_camera $(CAMERA_LAUNCH)" in source
+    assert "--packages-up-to dobot_camera dobot_handeye dobot_ros2" in source
+    assert "ros2 launch dobot_camera gemini305.launch.py" in source
+    assert "orbbec_camera $(CAMERA_LAUNCH)" not in source
     assert "ros2 run dobot_handeye dobot_handeye_check" in source
     assert "ros2 run dobot_handeye dobot_handeye_capture" in source
     assert "ros2 run dobot_handeye dobot_handeye_solve" in source
@@ -113,8 +119,9 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "ros2 service call /teach_list dobot_interfaces/srv/TrajectoryList" in source
     assert "SHELL := /bin/bash" in source
     assert "WS ?= $(CURDIR)" in source
+    assert "ORBBEC_WS ?= $(HOME)/orbbec_305" in source
+    assert 'source "$(ORBBEC_WS)/install/setup.bash"' in source
     assert "WS ?= /home/ros/ws" not in source
-    assert "--packages-up-to dobot_handeye dobot_ros2" in source
     assert "source /opt/ros/humble/setup.bash" in source
     assert "docker compose" not in source
     assert 'grep -E "^/tf$$|^/tf_static$$"' in source
@@ -184,6 +191,22 @@ def test_handeye_console_entrypoints_are_installed():
     assert "dobot_handeye_tf = dobot_handeye.handeye_tf:main" in handeye_setup
     assert "dobot_handeye_board_tf = dobot_handeye.handeye_board_tf:main" in handeye_setup
     assert "dobot_handeye_check = dobot_ros2.handeye_check:main" not in driver_setup
+
+
+def test_camera_wrapper_package_launches_official_orbbec_driver():
+    package_xml = (CAMERA_PACKAGE_ROOT / "package.xml").read_text()
+    setup = (CAMERA_PACKAGE_ROOT / "setup.py").read_text()
+    launch = (CAMERA_PACKAGE_ROOT / "launch" / "gemini305.launch.py").read_text()
+
+    assert "<name>dobot_camera</name>" in package_xml
+    assert "<exec_depend>orbbec_camera</exec_depend>" in package_xml
+    assert "share/{package_name}/launch" in setup
+    assert "PythonLaunchDescriptionSource" in launch
+    assert "FindPackageShare(\"orbbec_camera\")" in launch
+    assert "gemini_330_series.launch.py" in launch
+    assert "camera_name" in launch
+    assert "serial_number" in launch
+    assert "usb_port" in launch
 
 
 def test_control_console_serializes_ros_numpy_arrays():

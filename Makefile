@@ -3,6 +3,7 @@ SHELL := /bin/bash
 .PHONY: build driver bringup rviz control-ui control-ui-only services topics tf frames state errors clear enable disable estop joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move camera camera-topics camera-info handeye-check handeye-capture handeye-solve handeye-validate handeye-diagnose handeye-tf handeye-board-tf teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
 
 WS ?= $(CURDIR)
+ORBBEC_WS ?= $(HOME)/orbbec_305
 PARAMS ?= $(WS)/src/dobot_ros2/config/dobot_ros2.yaml
 U ?= 0
 T ?= 0
@@ -22,6 +23,9 @@ GRIPPER_POS ?= 1000
 GRIPPER_FORCE ?= 50
 GRIPPER_FORCE_N ?= -1.0
 CAMERA_LAUNCH ?= gemini_330_series.launch.py
+CAMERA_NAME ?= camera
+CAMERA_SERIAL ?=
+CAMERA_USB_PORT ?=
 DATASET ?=
 HANDEYE_DATASET_ROOT ?= handeye_datasets
 HANDEYE_DATASET_NAME ?=
@@ -34,10 +38,11 @@ HANDEYE_CHILD_FRAME ?= camera_color_optical_frame
 HANDEYE_METHOD ?= TSAI
 
 ROS_SETUP = source /opt/ros/humble/setup.bash
-ROS_ENV = $(ROS_SETUP) && cd $(WS) && source install/setup.bash
+ORBBEC_ENV = if [ -f "$(ORBBEC_WS)/install/setup.bash" ]; then source "$(ORBBEC_WS)/install/setup.bash"; fi
+ROS_ENV = $(ROS_SETUP) && $(ORBBEC_ENV) && cd $(WS) && source install/setup.bash
 
 build:
-	$(ROS_SETUP) && cd $(WS) && colcon build --symlink-install --packages-up-to dobot_handeye dobot_ros2
+	$(ROS_SETUP) && $(ORBBEC_ENV) && cd $(WS) && colcon build --symlink-install --packages-up-to dobot_camera dobot_handeye dobot_ros2
 
 driver:
 	$(ROS_ENV) && ros2 run dobot_ros2 dobot_motion_server --ros-args --params-file $(PARAMS)
@@ -106,7 +111,7 @@ gripper-move:
 	$(ROS_ENV) && ros2 service call /gripper_move dobot_interfaces/srv/GripperCommand "{opening_mm: $(GRIPPER_OPENING_MM), position_permille: $(GRIPPER_POS), force_percent: $(GRIPPER_FORCE), force_n: $(GRIPPER_FORCE_N), wait: $(WAIT), timeout_sec: $(TIMEOUT)}"
 
 camera:
-	$(ROS_ENV) && ros2 launch orbbec_camera $(CAMERA_LAUNCH)
+	$(ROS_ENV) && ros2 launch dobot_camera gemini305.launch.py orbbec_launch_file:=$(CAMERA_LAUNCH) camera_name:=$(CAMERA_NAME) serial_number:=$(CAMERA_SERIAL) usb_port:=$(CAMERA_USB_PORT)
 
 camera-topics:
 	$(ROS_ENV) && ros2 topic list | grep -E "^/camera/"
