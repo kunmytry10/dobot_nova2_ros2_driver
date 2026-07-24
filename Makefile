@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: build driver bringup rviz control-ui control-ui-only services topics tf frames state errors clear enable disable estop joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move camera camera-topics camera-info handeye-check handeye-capture handeye-solve handeye-validate handeye-diagnose handeye-tf handeye-board-tf keyboard keyboard-input keyboard-teleop teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
+.PHONY: build driver bringup rviz control-ui control-ui-only services topics tf frames state errors clear enable disable estop joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move camera camera-topics camera-info handeye-check handeye-capture handeye-solve handeye-validate handeye-diagnose handeye-tf handeye-board-tf keyboard keyboard-input keyboard-teleop joy joy-teleop move-jog jog-stop teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
 
 WS ?= $(CURDIR)
 ORBBEC_WS ?= $(HOME)/orbbec_305
@@ -13,6 +13,7 @@ WAIT ?= true
 TIMEOUT ?= 20.0
 J ?= []
 P ?= []
+AXIS ?=
 TRAJ ?=
 OVERWRITE ?= false
 REPLAY_MODE ?=
@@ -44,13 +45,19 @@ KEYBOARD_STEP_MM ?= 5.0
 KEYBOARD_ROT_STEP_DEG ?= 2.0
 KEYBOARD_MOTION_SERVICE ?= movep
 KEYBOARD_GRIPPER_INIT ?= true
+JOY_TOPIC ?= /joy
+JOY_DEV ?= /dev/input/js0
+JOY_DEADMAN_BUTTON ?= 4
+JOY_ESTOP_BUTTON ?= 1
+JOY_DEADZONE ?= 0.25
+JOY_COORD_TYPE ?= 0
 
 ROS_SETUP = source /opt/ros/humble/setup.bash
 ORBBEC_ENV = if [ -f "$(ORBBEC_WS)/install/setup.bash" ]; then source "$(ORBBEC_WS)/install/setup.bash"; fi
 ROS_ENV = $(ROS_SETUP) && $(ORBBEC_ENV) && cd $(WS) && source install/setup.bash
 
 build:
-	$(ROS_SETUP) && $(ORBBEC_ENV) && cd $(WS) && colcon build --symlink-install --packages-up-to dobot_camera dobot_handeye dobot_keyboard dobot_ros2
+	$(ROS_SETUP) && $(ORBBEC_ENV) && cd $(WS) && colcon build --symlink-install --packages-up-to dobot_camera dobot_handeye dobot_keyboard dobot_joy dobot_ros2
 
 driver:
 	$(ROS_ENV) && ros2 run dobot_ros2 dobot_motion_server --ros-args --params-file $(PARAMS)
@@ -71,7 +78,7 @@ services:
 	$(ROS_ENV) && ros2 service list | grep -E "get_robot_state|get_joint_state|get_tcp_pose|get_gripper_state|clear_error|enable_robot|disable_robot|emergency_stop|get_error_id|gripper|teach|move"
 
 topics:
-	$(ROS_ENV) && ros2 topic list | grep -E "^/joint_states$$|^/tcp_pose$$|^/dobot_state$$|^/gripper_state$$|^/tf$$|^/tf_static$$"
+	$(ROS_ENV) && ros2 topic list | grep -E "^/joint_states$$|^/tcp_pose$$|^/dobot_state$$|^/gripper_state$$|^/keyboard/input$$|^/joy$$|^/tf$$|^/tf_static$$"
 
 tf:
 	$(ROS_ENV) && ros2 topic list | grep -E "^/tf$$|^/tf_static$$"
@@ -156,6 +163,18 @@ keyboard-input:
 
 keyboard-teleop:
 	$(ROS_ENV) && ros2 run dobot_keyboard dobot_keyboard_teleop --ros-args --params-file $(PARAMS) -p keyboard.input_topic:=$(KEYBOARD_TOPIC) -p keyboard.translation_step_mm:=$(KEYBOARD_STEP_MM) -p keyboard.rotation_step_deg:=$(KEYBOARD_ROT_STEP_DEG) -p keyboard.motion_service:=$(KEYBOARD_MOTION_SERVICE) -p keyboard.speed:=$(SPEED) -p keyboard.acceleration:=$(ACC) -p keyboard.wait:=$(WAIT) -p keyboard.timeout_sec:=$(TIMEOUT)
+
+joy:
+	$(ROS_ENV) && ros2 launch dobot_joy joy_teleop.launch.py joy_topic:=$(JOY_TOPIC) dev:=$(JOY_DEV) deadman_button_index:=$(JOY_DEADMAN_BUTTON) estop_button_index:=$(JOY_ESTOP_BUTTON) deadzone:=$(JOY_DEADZONE) coord_type:=$(JOY_COORD_TYPE)
+
+joy-teleop:
+	$(ROS_ENV) && ros2 run dobot_joy dobot_joy_teleop --ros-args -p joy.topic:=$(JOY_TOPIC) -p joy.deadman_button_index:=$(JOY_DEADMAN_BUTTON) -p joy.estop_button_index:=$(JOY_ESTOP_BUTTON) -p joy.deadzone:=$(JOY_DEADZONE) -p joy.coord_type:=$(JOY_COORD_TYPE)
+
+move-jog:
+	$(ROS_ENV) && ros2 service call /move_jog dobot_interfaces/srv/JogCommand "{axis_id: '$(AXIS)', stop: false, coord_type: $(JOY_COORD_TYPE), user: $(U), tool: $(T)}"
+
+jog-stop:
+	$(ROS_ENV) && ros2 service call /move_jog dobot_interfaces/srv/JogCommand "{stop: true}"
 
 teach-start:
 	$(ROS_ENV) && ros2 service call /teach_start dobot_interfaces/srv/TrajectoryCommand "{name: '$(TRAJ)', overwrite: $(OVERWRITE)}"

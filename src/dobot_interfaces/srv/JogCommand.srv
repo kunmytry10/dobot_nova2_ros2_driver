@@ -1,0 +1,12 @@
+# Jog command using the Dobot MoveJog TCP command.
+# If stop is true, axis_id and coordinate fields are ignored and MoveJog() is sent.
+string axis_id
+bool stop
+int32 coord_type
+int32 user
+int32 tool
+---
+bool success
+int32 error_id
+string message
+string raw_reply

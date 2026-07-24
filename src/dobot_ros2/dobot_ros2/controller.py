@@ -375,6 +375,39 @@ class DobotController:
     def dashboard_command(self, command: str, label: str) -> DashboardResult:
         return self._dashboard_command(command, label)
 
+    def move_jog(
+        self,
+        axis_id: str = "",
+        stop: bool = False,
+        coord_type: int = 0,
+        user: int = 0,
+        tool: int = 0,
+    ) -> DashboardResult:
+        try:
+            self.connect()
+            axis = str(axis_id).strip()
+            if stop or not axis:
+                command = "MoveJog()"
+            else:
+                command = (
+                    f"MoveJog({axis},CoordType={int(coord_type):d},"
+                    f"User={int(user):d},Tool={int(tool):d})"
+                )
+            raw_reply = self._send_move_with_reconnect(
+                command,
+                self.config.command_timeout_sec,
+            )
+            error_id = _reply_error_id(raw_reply)
+            success = error_id == 0
+            return DashboardResult(
+                success=success,
+                error_id=error_id if error_id is not None else -1,
+                message=f"move_jog {'accepted' if success else 'rejected'}",
+                raw_reply=raw_reply,
+            )
+        except Exception as exc:
+            return DashboardResult(False, message=f"move_jog failed: {exc}")
+
     def teach_start(self, name: str = "", overwrite: bool = False) -> TeachResult:
         with self._teach_lock:
             if self._teach_recording:

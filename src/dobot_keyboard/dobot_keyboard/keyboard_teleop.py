@@ -1,9 +1,12 @@
 import rclpy
+from dobot_interfaces.msg import DobotState
 from dobot_interfaces.srv import GetTcpPose, GripperCommand, GripperState, MoveCommand
 from rclpy.node import Node
 from std_msgs.msg import String
+from std_srvs.srv import Trigger
 
 from dobot_keyboard.keyboard_common import (
+    ESTOP_KEY,
     KeyboardSafetyConfig,
     RESET_SIM_KEY,
     TOGGLE_GRIPPER_KEY,
@@ -11,6 +14,7 @@ from dobot_keyboard.keyboard_common import (
     decide_gripper_opening,
     key_to_delta,
     normalize_key,
+    robot_state_allows_motion,
     target_within_limits,
 )
 
@@ -71,13 +75,18 @@ class KeyboardTeleopNode(Node):
             )
 
         self.busy = False
+        self.latest_state = None
         self.subscription = self.create_subscription(
             String, self.input_topic, self._on_key, 10
+        )
+        self.state_subscription = self.create_subscription(
+            DobotState, "/dobot_state", self._on_dobot_state, 10
         )
         self.tcp_client = self.create_client(GetTcpPose, "/get_tcp_pose")
         self.motion_client = self.create_client(MoveCommand, self.motion_service_name)
         self.gripper_state_client = self.create_client(GripperState, "/get_gripper_state")
         self.gripper_move_client = self.create_client(GripperCommand, "/gripper_move")
+        self.estop_client = self.create_client(Trigger, "/emergency_stop")
         self.get_logger().info(
             "keyboard teleop ready: "
             f"topic={self.input_topic}, motion_service={self.motion_service_name}, "
@@ -109,6 +118,9 @@ class KeyboardTeleopNode(Node):
 
     def _on_key(self, msg: String):
         key = normalize_key(msg.data)
+        if key == ESTOP_KEY:
+            self._emergency_stop()
+            return
         if key == RESET_SIM_KEY:
             self.get_logger().warn("reset simulation is not supported on the real Dobot")
             return
@@ -121,6 +133,41 @@ class KeyboardTeleopNode(Node):
             return
         self._request_motion(delta)
 
+    def _on_dobot_state(self, msg: DobotState):
+        self.latest_state = msg
+
+    def _state_allows_motion(self) -> bool:
+        if self.latest_state is None:
+            self.get_logger().warn("keyboard motion rejected: no dobot_state received yet")
+            return False
+        ok, reason = robot_state_allows_motion(
+            self.latest_state.connected,
+            self.latest_state.feedback_valid,
+            self.latest_state.robot_mode,
+            self.latest_state.enable_status,
+            self.latest_state.error_status,
+        )
+        if not ok:
+            self.get_logger().warn(f"keyboard motion rejected: {reason}")
+        return ok
+
+    def _emergency_stop(self):
+        if not self.estop_client.wait_for_service(timeout_sec=0.1):
+            self.get_logger().error("/emergency_stop service is not available")
+            return
+        future = self.estop_client.call_async(Trigger.Request())
+        future.add_done_callback(self._on_estop_done)
+
+    def _on_estop_done(self, future):
+        try:
+            response = future.result()
+            if response.success:
+                self.get_logger().error(f"emergency stop accepted: {response.message}")
+            else:
+                self.get_logger().error(f"emergency stop rejected: {response.message}")
+        except Exception as exc:  # pragma: no cover - ROS callback safety
+            self.get_logger().error(f"emergency stop service failed: {exc}")
+
     def _try_start_command(self) -> bool:
         if self.busy:
             self.get_logger().warn("previous keyboard command is still running; key ignored")
@@ -132,6 +179,8 @@ class KeyboardTeleopNode(Node):
         self.busy = False
 
     def _request_motion(self, delta):
+        if not self._state_allows_motion():
+            return
         if not self._try_start_command():
             return
         if not self.tcp_client.wait_for_service(timeout_sec=0.1):

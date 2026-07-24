@@ -13,7 +13,8 @@ from dobot_keyboard.keyboard_common import normalize_key
 HELP_TEXT = """Keyboard teleop:
   w/s: x +/-    a/d: y +/-    r/f: z +/-
   z/x: rx +/-   t/g: ry +/-   c/v: rz +/-
-  space: toggle gripper       q: reset simulation no-op
+  space: toggle gripper       e: emergency stop
+  q: reset simulation no-op
   ESC: quit
 """
 

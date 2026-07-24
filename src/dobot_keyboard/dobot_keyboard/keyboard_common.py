@@ -5,6 +5,7 @@ from typing import List, Optional, Sequence, Tuple
 MOVE_KEYS = {"w", "s", "a", "d", "r", "f", "z", "x", "t", "g", "c", "v"}
 TOGGLE_GRIPPER_KEY = "space"
 RESET_SIM_KEY = "q"
+ESTOP_KEY = "e"
 QUIT_KEY = "esc"
 
 
@@ -40,9 +41,29 @@ def normalize_key(key: str) -> str:
     value = key.strip().lower()
     if value in {" ", "spacebar"}:
         return TOGGLE_GRIPPER_KEY
+    if value in {"e", "estop", "emergency_stop"}:
+        return ESTOP_KEY
     if value in {"\x1b", "escape"}:
         return QUIT_KEY
     return value
+
+
+def robot_state_allows_motion(
+    connected: bool,
+    feedback_valid: bool,
+    robot_mode: int,
+    enable_status: int,
+    error_status: int,
+) -> Tuple[bool, str]:
+    if not connected:
+        return False, "robot is not connected"
+    if not feedback_valid:
+        return False, "robot feedback is not valid"
+    if int(error_status) != 0 or int(robot_mode) == 9:
+        return False, f"robot is in error state: robot_mode={int(robot_mode)}, error_status={int(error_status)}"
+    if int(enable_status) != 1:
+        return False, f"robot is not enabled: enable_status={int(enable_status)}"
+    return True, ""
 
 
 def apply_delta(pose: Sequence[float], delta: Sequence[float]) -> List[float]:

@@ -72,6 +72,10 @@ def test_project_makefile_wraps_common_ros_workflows():
         "keyboard:",
         "keyboard-input:",
         "keyboard-teleop:",
+        "joy:",
+        "joy-teleop:",
+        "move-jog:",
+        "jog-stop:",
         "teach-start:",
         "teach-stop:",
         "teach-replay:",
@@ -111,8 +115,10 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "KEYBOARD_ROT_STEP_DEG ?= 2.0" in source
     assert "KEYBOARD_MOTION_SERVICE ?= movep" in source
     assert "KEYBOARD_GRIPPER_INIT ?= true" in source
+    assert "JOY_TOPIC ?= /joy" in source
+    assert "JOY_DEADMAN_BUTTON ?= 4" in source
     assert "dobot_control_console.launch.py" in source
-    assert "--packages-up-to dobot_camera dobot_handeye dobot_keyboard dobot_ros2" in source
+    assert "--packages-up-to dobot_camera dobot_handeye dobot_keyboard dobot_joy dobot_ros2" in source
     assert "ros2 launch dobot_camera gemini305.launch.py" in source
     assert "serial_number:=$(CAMERA_SERIAL) usb_port:=$(CAMERA_USB_PORT)" not in source
     assert "orbbec_camera $(CAMERA_LAUNCH)" not in source
@@ -128,6 +134,9 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "ros2 service call /gripper_init std_srvs/srv/Trigger" in source
     assert "ros2 run dobot_keyboard dobot_keyboard_input" in source
     assert "ros2 run dobot_keyboard dobot_keyboard_teleop" in source
+    assert "ros2 launch dobot_joy joy_teleop.launch.py" in source
+    assert "ros2 run dobot_joy dobot_joy_teleop" in source
+    assert "ros2 service call /move_jog dobot_interfaces/srv/JogCommand" in source
     assert "ros2 service call /emergency_stop std_srvs/srv/Trigger" in source
     assert "ros2 service call /gripper_move dobot_interfaces/srv/GripperCommand" in source
     assert "force_n: $(GRIPPER_FORCE_N)" in source

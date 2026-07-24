@@ -9,6 +9,7 @@ from dobot_interfaces.srv import (
     GetTcpPose,
     GripperCommand,
     GripperState,
+    JogCommand,
     MoveCommand,
     TrajectoryCommand,
     TrajectoryList,
@@ -73,6 +74,7 @@ class DobotMotionServer(Node):
         self.create_service(Trigger, "enable_robot", self._enable_robot)
         self.create_service(Trigger, "disable_robot", self._disable_robot)
         self.create_service(Trigger, "emergency_stop", self._emergency_stop)
+        self.create_service(JogCommand, "move_jog", self._move_jog)
         self.create_service(Trigger, "get_error_id", self._get_error_id)
         self.create_service(GetRobotState, "get_robot_state", self._get_robot_state)
         self.create_service(GetJointState, "get_joint_state", self._get_joint_state)
@@ -313,6 +315,24 @@ class DobotMotionServer(Node):
             if response.success
             else "feedback not received yet"
         )
+        return response
+
+    def _move_jog(self, request: JogCommand.Request, response: JogCommand.Response):
+        result = self.controller.move_jog(
+            str(request.axis_id),
+            stop=bool(request.stop),
+            coord_type=int(request.coord_type),
+            user=int(request.user),
+            tool=int(request.tool),
+        )
+        response.success = result.success
+        response.error_id = int(result.error_id)
+        response.message = result.message
+        response.raw_reply = result.raw_reply
+        if result.success:
+            self.get_logger().info("move_jog accepted")
+        else:
+            self.get_logger().warning(f"move_jog rejected: {result.message}")
         return response
 
     def _teach_start(self, request: TrajectoryCommand.Request, response):

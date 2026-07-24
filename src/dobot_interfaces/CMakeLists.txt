@@ -12,6 +12,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetTcpPose.srv"
   "srv/GripperCommand.srv"
   "srv/GripperState.srv"
+  "srv/JogCommand.srv"
   "srv/MoveCommand.srv"
   "srv/TrajectoryCommand.srv"
   "srv/TrajectoryList.srv"

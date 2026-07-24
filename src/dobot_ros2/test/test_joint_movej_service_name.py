@@ -32,6 +32,35 @@ def test_emergency_stop_service_is_registered():
     assert "self.controller.emergency_stop()" in driver_source
 
 
+def test_move_jog_service_is_registered():
+    driver_source = (PACKAGE_ROOT / "dobot_ros2" / "driver_node.py").read_text()
+    interfaces_source = (PACKAGE_ROOT.parent / "dobot_interfaces" / "CMakeLists.txt").read_text()
+
+    assert 'create_service(JogCommand, "move_jog"' in driver_source
+    assert '"srv/JogCommand.srv"' in interfaces_source
+    assert "self.controller.move_jog(" in driver_source
+
+
+def test_move_jog_maps_to_move_port_command():
+    controller = DobotController(ControllerConfig())
+    calls = []
+
+    def fake_send_move(command, timeout_sec):
+        calls.append((command, timeout_sec))
+        return f"0,{{}},{command};"
+
+    controller.connect = lambda: None
+    controller._send_move_with_reconnect = fake_send_move
+
+    result = controller.move_jog("X+", coord_type=0, user=0, tool=0)
+    stop = controller.move_jog("", stop=True)
+
+    assert result.success
+    assert stop.success
+    assert calls[0][0] == "MoveJog(X+,CoordType=0,User=0,Tool=0)"
+    assert calls[1][0] == "MoveJog()"
+
+
 def test_emergency_stop_maps_to_dashboard_command():
     controller = DobotController(ControllerConfig())
     calls = []
