@@ -32,6 +32,7 @@ setup(
             "dobot_handeye_capture = dobot_ros2.handeye_capture:main",
             "dobot_handeye_solve = dobot_ros2.handeye_solve:main",
             "dobot_handeye_validate = dobot_ros2.handeye_validate:main",
+            "dobot_handeye_diagnose = dobot_ros2.handeye_diagnose:main",
             "dobot_handeye_tf = dobot_ros2.handeye_tf:main",
         ],
     },

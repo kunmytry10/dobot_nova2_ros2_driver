@@ -59,6 +59,7 @@ def test_project_makefile_wraps_common_ros_workflows():
         "handeye-capture:",
         "handeye-solve:",
         "handeye-validate:",
+        "handeye-diagnose:",
         "handeye-tf:",
         "teach-start:",
         "teach-stop:",
@@ -85,12 +86,15 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "CAMERA_LAUNCH ?= gemini_330_series.launch.py" in source
     assert "HANDEYE_DATASET_ROOT ?= handeye_datasets" in source
     assert "HANDEYE_RESULT_FILE ?=" in source
+    assert "HANDEYE_DIAGNOSE_FILE ?=" in source
+    assert "HANDEYE_METHOD ?= TSAI" in source
     assert "dobot_control_console.launch.py" in source
     assert "ros2 launch orbbec_camera $(CAMERA_LAUNCH)" in source
     assert "ros2 run dobot_ros2 dobot_handeye_check" in source
     assert "ros2 run dobot_ros2 dobot_handeye_capture" in source
     assert "ros2 run dobot_ros2 dobot_handeye_solve" in source
     assert "ros2 run dobot_ros2 dobot_handeye_validate" in source
+    assert "ros2 run dobot_ros2 dobot_handeye_diagnose" in source
     assert "ros2 run dobot_ros2 dobot_handeye_tf" in source
     assert "ros2 service call /emergency_stop std_srvs/srv/Trigger" in source
     assert "ros2 service call /gripper_move dobot_interfaces/srv/GripperCommand" in source
@@ -145,6 +149,7 @@ def test_handeye_console_entrypoints_are_installed():
     assert "dobot_handeye_capture = dobot_ros2.handeye_capture:main" in setup
     assert "dobot_handeye_solve = dobot_ros2.handeye_solve:main" in setup
     assert "dobot_handeye_validate = dobot_ros2.handeye_validate:main" in setup
+    assert "dobot_handeye_diagnose = dobot_ros2.handeye_diagnose:main" in setup
     assert "dobot_handeye_tf = dobot_ros2.handeye_tf:main" in setup
 
 

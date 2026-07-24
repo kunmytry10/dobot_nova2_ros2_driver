@@ -12,9 +12,21 @@ from dobot_ros2.handeye_common import (
 )
 
 
-def solve_handeye_from_samples(samples):
+HANDEYE_METHODS = {
+    "TSAI": cv2.CALIB_HAND_EYE_TSAI,
+    "PARK": cv2.CALIB_HAND_EYE_PARK,
+    "HORAUD": cv2.CALIB_HAND_EYE_HORAUD,
+    "ANDREFF": cv2.CALIB_HAND_EYE_ANDREFF,
+    "DANIILIDIS": cv2.CALIB_HAND_EYE_DANIILIDIS,
+}
+
+
+def solve_handeye_from_samples(samples, method="TSAI"):
     if len(samples) < 3:
         raise ValueError("at least 3 samples are required")
+    method_name = str(method).upper()
+    if method_name not in HANDEYE_METHODS:
+        raise ValueError(f"unsupported handeye method: {method}")
 
     rotations_gripper_to_base = []
     translations_gripper_to_base = []
@@ -34,7 +46,7 @@ def solve_handeye_from_samples(samples):
         translations_gripper_to_base,
         rotations_target_to_camera,
         translations_target_to_camera,
-        method=cv2.CALIB_HAND_EYE_TSAI,
+        method=HANDEYE_METHODS[method_name],
     )
 
     result = np.eye(4, dtype=float)
@@ -67,7 +79,7 @@ def default_result_file(dataset, result_file):
     return "handeye_result.yaml"
 
 
-def save_result(result_file, matrix, sample_count, parent_frame, child_frame):
+def save_result(result_file, matrix, sample_count, parent_frame, child_frame, method="TSAI"):
     data = matrix_to_transform_dict(matrix)
     payload = {
         "parent_frame": parent_frame,
@@ -75,7 +87,7 @@ def save_result(result_file, matrix, sample_count, parent_frame, child_frame):
         "translation": data["translation"],
         "rotation_xyzw": data["rotation_xyzw"],
         "sample_count": int(sample_count),
-        "method": "CALIB_HAND_EYE_TSAI",
+        "method": str(method).upper(),
     }
     Path(result_file).write_text(yaml.safe_dump(payload, sort_keys=False))
     return payload
@@ -88,18 +100,20 @@ def main(argv=None):
     parser.add_argument("--result-file", default=None)
     parser.add_argument("--parent-frame", default="Link6")
     parser.add_argument("--child-frame", default="camera_color_optical_frame")
+    parser.add_argument("--method", default="TSAI", choices=sorted(HANDEYE_METHODS))
     args, _ = parser.parse_known_args(argv)
 
     samples_dir = samples_dir_from_dataset(args.dataset, args.samples_dir)
     result_file = default_result_file(args.dataset, args.result_file)
     samples = load_samples(samples_dir)
-    result = solve_handeye_from_samples(samples)
+    result = solve_handeye_from_samples(samples, method=args.method)
     payload = save_result(
         result_file,
         result,
         len(samples),
         args.parent_frame,
         args.child_frame,
+        method=args.method,
     )
     print(yaml.safe_dump(payload, sort_keys=False))
 

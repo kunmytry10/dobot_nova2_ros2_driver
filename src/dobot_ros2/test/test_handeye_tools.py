@@ -16,6 +16,7 @@ from dobot_ros2.handeye_common import (
     matrix_to_xyz_quat,
     xyz_quat_to_matrix,
 )
+from dobot_ros2.handeye_diagnose import diagnose_handeye_samples
 from dobot_ros2.handeye_solve import default_result_file, solve_handeye_from_samples
 from dobot_ros2.handeye_validate import validate_handeye_samples
 
@@ -95,6 +96,57 @@ def test_solve_handeye_from_synthetic_samples_recovers_transform():
     result = solve_handeye_from_samples(samples)
 
     assert np.allclose(result, flange_to_camera, atol=1e-5)
+
+
+def test_diagnose_handeye_samples_compares_methods_and_leave_one_out():
+    flange_to_camera = xyz_quat_to_matrix(
+        [0.05, -0.02, 0.08],
+        [0.0, math.sin(math.pi / 12.0), 0.0, math.cos(math.pi / 12.0)],
+    )
+    base_to_board = xyz_quat_to_matrix(
+        [0.38, 0.06, 0.22],
+        [0.0, 0.0, math.sin(math.pi / 9.0), math.cos(math.pi / 9.0)],
+    )
+
+    samples = []
+    for index, angle in enumerate(np.linspace(-0.8, 0.8, 8)):
+        base_to_flange = xyz_quat_to_matrix(
+            [0.22 + index * 0.015, -0.16 + index * 0.02, 0.30 + index * 0.01],
+            [
+                math.sin(angle / 3.0),
+                math.sin(angle / 5.0),
+                math.sin(angle / 2.0),
+                1.0,
+            ],
+        )
+        base_to_camera = base_to_flange @ flange_to_camera
+        board_to_camera = invert_matrix(base_to_camera) @ base_to_board
+        if index == 4:
+            board_to_camera[:3, 3] += np.array([0.04, -0.02, 0.03])
+
+        base_xyz, base_quat = matrix_to_xyz_quat(base_to_flange)
+        board_xyz, board_quat = matrix_to_xyz_quat(board_to_camera)
+        samples.append(
+            {
+                "sample_id": index + 1,
+                "base_to_flange": {
+                    "translation": base_xyz,
+                    "rotation_xyzw": base_quat,
+                },
+                "board_to_camera": {
+                    "translation": board_xyz,
+                    "rotation_xyzw": board_quat,
+                },
+            }
+        )
+
+    report = diagnose_handeye_samples(samples)
+
+    assert report["sample_count"] == 8
+    assert report["best_method"] in {method["method"] for method in report["methods"]}
+    assert {method["method"] for method in report["methods"]} >= {"TSAI", "PARK", "HORAUD"}
+    assert report["leave_one_out"][0]["removed_sample_id"] == 5
+    assert report["leave_one_out"][0]["translation_rms_mm"] < report["baseline"]["translation_rms_mm"]
 
 
 def test_default_result_file_uses_dataset_result_yaml(tmp_path):

@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: build driver bringup rviz control-ui control-ui-only services topics tf frames state errors clear enable disable estop joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move camera camera-topics camera-info handeye-check handeye-capture handeye-solve handeye-validate handeye-tf teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
+.PHONY: build driver bringup rviz control-ui control-ui-only services topics tf frames state errors clear enable disable estop joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move camera camera-topics camera-info handeye-check handeye-capture handeye-solve handeye-validate handeye-diagnose handeye-tf teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
 
 WS ?= $(CURDIR)
 PARAMS ?= $(WS)/src/dobot_ros2/config/dobot_ros2.yaml
@@ -27,8 +27,10 @@ HANDEYE_DATASET_ROOT ?= handeye_datasets
 HANDEYE_DATASET_NAME ?=
 HANDEYE_SAMPLES_DIR ?= handeye_samples
 HANDEYE_RESULT_FILE ?=
+HANDEYE_DIAGNOSE_FILE ?=
 HANDEYE_PARENT_FRAME ?= Link6
 HANDEYE_CHILD_FRAME ?= camera_color_optical_frame
+HANDEYE_METHOD ?= TSAI
 
 ROS_SETUP = source /opt/ros/humble/setup.bash
 ROS_ENV = $(ROS_SETUP) && cd $(WS) && source install/setup.bash
@@ -118,10 +120,13 @@ handeye-capture:
 	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_capture --dataset-root $(HANDEYE_DATASET_ROOT) --dataset-name "$(HANDEYE_DATASET_NAME)" --ros-args --params-file $(PARAMS)
 
 handeye-solve:
-	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_solve --dataset "$(DATASET)" --samples-dir $(HANDEYE_SAMPLES_DIR) --result-file "$(HANDEYE_RESULT_FILE)" --parent-frame $(HANDEYE_PARENT_FRAME) --child-frame $(HANDEYE_CHILD_FRAME)
+	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_solve --dataset "$(DATASET)" --samples-dir $(HANDEYE_SAMPLES_DIR) --result-file "$(HANDEYE_RESULT_FILE)" --parent-frame $(HANDEYE_PARENT_FRAME) --child-frame $(HANDEYE_CHILD_FRAME) --method $(HANDEYE_METHOD)
 
 handeye-validate:
 	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_validate --dataset "$(DATASET)" --result-file "$(HANDEYE_RESULT_FILE)"
+
+handeye-diagnose:
+	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_diagnose --dataset "$(DATASET)" --diagnose-file "$(HANDEYE_DIAGNOSE_FILE)"
 
 handeye-tf:
 	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_tf --dataset "$(DATASET)" --result-file "$(HANDEYE_RESULT_FILE)"
