@@ -79,6 +79,24 @@
         marker_length_m: 0.01125
         min_charuco_corners: 4
 
+    # Keyboard Cartesian teleoperation. Each key press sends one small TCP step.
+    keyboard:
+      input_topic: "/keyboard/input"
+      translation_step_mm: 5.0
+      rotation_step_deg: 2.0
+      motion_service: "movep"
+      speed: 2
+      acceleration: 2
+      wait: true
+      timeout_sec: 20.0
+      workspace_min: [-625.0, -625.0, 20.0, -360.0, -360.0, -360.0]
+      workspace_max: [625.0, 625.0, 625.0, 360.0, 360.0, 360.0]
+      workspace_max_xy_radius_mm: 625.0
+      gripper_opening_open_mm: 95.0
+      gripper_opening_close_mm: 0.0
+      gripper_toggle_threshold_mm: 45.0
+      gripper_force_percent: 50
+
     # DH Robotics AG-160-95-W-S gripper, Modbus-RTU over RS485.
     gripper_enabled: true
     gripper_transport: "dobot_modbus"

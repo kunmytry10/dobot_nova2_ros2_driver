@@ -69,6 +69,9 @@ def test_project_makefile_wraps_common_ros_workflows():
         "handeye-diagnose:",
         "handeye-tf:",
         "handeye-board-tf:",
+        "keyboard:",
+        "keyboard-input:",
+        "keyboard-teleop:",
         "teach-start:",
         "teach-stop:",
         "teach-replay:",
@@ -103,8 +106,12 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "HANDEYE_METHOD ?= TSAI" in source
     assert "HANDEYE_STATIC_TF_FILE ?= $(WS)/handeye_result.yaml" in source
     assert "HANDEYE_STATIC_TF_CHILD_FRAME ?= camera_link" in source
+    assert "KEYBOARD_TOPIC ?= /keyboard/input" in source
+    assert "KEYBOARD_STEP_MM ?= 5.0" in source
+    assert "KEYBOARD_ROT_STEP_DEG ?= 2.0" in source
+    assert "KEYBOARD_MOTION_SERVICE ?= movep" in source
     assert "dobot_control_console.launch.py" in source
-    assert "--packages-up-to dobot_camera dobot_handeye dobot_ros2" in source
+    assert "--packages-up-to dobot_camera dobot_handeye dobot_keyboard dobot_ros2" in source
     assert "ros2 launch dobot_camera gemini305.launch.py" in source
     assert "serial_number:=$(CAMERA_SERIAL) usb_port:=$(CAMERA_USB_PORT)" not in source
     assert "orbbec_camera $(CAMERA_LAUNCH)" not in source
@@ -116,6 +123,9 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "ros2 run dobot_handeye dobot_handeye_tf" in source
     assert "--output-child-frame $(HANDEYE_STATIC_TF_CHILD_FRAME)" in source
     assert "ros2 run dobot_handeye dobot_handeye_board_tf" in source
+    assert "ros2 launch dobot_keyboard keyboard_teleop.launch.py" in source
+    assert "ros2 run dobot_keyboard dobot_keyboard_input" in source
+    assert "ros2 run dobot_keyboard dobot_keyboard_teleop" in source
     assert "ros2 service call /emergency_stop std_srvs/srv/Trigger" in source
     assert "ros2 service call /gripper_move dobot_interfaces/srv/GripperCommand" in source
     assert "force_n: $(GRIPPER_FORCE_N)" in source
@@ -164,6 +174,21 @@ def test_handeye_config_documents_camera_topics_and_board():
     assert "square_length_m: 0.015" in source
     assert "marker_length_m: 0.01125" in source
     assert 'dictionary: "DICT_5X5_100"' in source
+
+
+def test_keyboard_config_documents_safe_defaults():
+    source = (PACKAGE_ROOT / "config" / "dobot_ros2.yaml").read_text()
+
+    assert "keyboard:" in source
+    assert 'input_topic: "/keyboard/input"' in source
+    assert "translation_step_mm: 5.0" in source
+    assert "rotation_step_deg: 2.0" in source
+    assert 'motion_service: "movep"' in source
+    assert "workspace_min: [-625.0, -625.0, 20.0, -360.0, -360.0, -360.0]" in source
+    assert "workspace_max: [625.0, 625.0, 625.0, 360.0, 360.0, 360.0]" in source
+    assert "workspace_max_xy_radius_mm: 625.0" in source
+    assert "gripper_opening_open_mm: 95.0" in source
+    assert "gripper_toggle_threshold_mm: 45.0" in source
 
 
 def test_control_console_launch_and_package_entrypoint_are_installed():
