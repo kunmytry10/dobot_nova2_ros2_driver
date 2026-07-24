@@ -16,6 +16,7 @@ def _launch_setup(context, *args, **kwargs):
     start_state_publisher = LaunchConfiguration("start_state_publisher")
     handeye_tf = LaunchConfiguration("handeye_tf").perform(context).lower()
     handeye_result_file = LaunchConfiguration("handeye_result_file").perform(context)
+    handeye_output_child_frame = LaunchConfiguration("handeye_output_child_frame")
     urdf_file = LaunchConfiguration("urdf_file").perform(context)
     console_host = LaunchConfiguration("console_host")
     console_port = LaunchConfiguration("console_port")
@@ -66,7 +67,12 @@ def _launch_setup(context, *args, **kwargs):
                 name="dobot_handeye_tf",
                 namespace=namespace,
                 output="screen",
-                arguments=["--result-file", handeye_result_file],
+                arguments=[
+                    "--result-file",
+                    handeye_result_file,
+                    "--output-child-frame",
+                    handeye_output_child_frame,
+                ],
             )
         )
     elif handeye_tf in {"1", "true", "yes", "on"}:
@@ -93,6 +99,7 @@ def generate_launch_description():
             DeclareLaunchArgument("console_port", default_value="8080"),
             DeclareLaunchArgument("handeye_tf", default_value="true"),
             DeclareLaunchArgument("handeye_result_file", default_value=""),
+            DeclareLaunchArgument("handeye_output_child_frame", default_value="camera_link"),
             OpaqueFunction(function=_launch_setup),
         ]
     )

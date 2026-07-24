@@ -18,6 +18,7 @@ def test_bringup_launch_is_runtime_entrypoint_with_optional_rviz():
     assert "dobot_handeye_tf" in source
     assert "handeye_tf" in source
     assert "handeye_result_file" in source
+    assert "handeye_output_child_frame" in source
     assert "DeclareLaunchArgument(\"rviz\", default_value=\"false\")" in source
     assert "IfCondition(rviz)" in source
     assert "nova2_robot.urdf" in source
@@ -101,6 +102,7 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "HANDEYE_DIAGNOSE_FILE ?=" in source
     assert "HANDEYE_METHOD ?= TSAI" in source
     assert "HANDEYE_STATIC_TF_FILE ?= $(WS)/handeye_result.yaml" in source
+    assert "HANDEYE_STATIC_TF_CHILD_FRAME ?= camera_link" in source
     assert "dobot_control_console.launch.py" in source
     assert "--packages-up-to dobot_camera dobot_handeye dobot_ros2" in source
     assert "ros2 launch dobot_camera gemini305.launch.py" in source
@@ -112,6 +114,7 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "ros2 run dobot_handeye dobot_handeye_validate" in source
     assert "ros2 run dobot_handeye dobot_handeye_diagnose" in source
     assert "ros2 run dobot_handeye dobot_handeye_tf" in source
+    assert "--output-child-frame $(HANDEYE_STATIC_TF_CHILD_FRAME)" in source
     assert "ros2 run dobot_handeye dobot_handeye_board_tf" in source
     assert "ros2 service call /emergency_stop std_srvs/srv/Trigger" in source
     assert "ros2 service call /gripper_move dobot_interfaces/srv/GripperCommand" in source
@@ -175,6 +178,7 @@ def test_control_console_launch_and_package_entrypoint_are_installed():
     assert "dobot_handeye_tf" in source
     assert "handeye_tf" in source
     assert "handeye_result_file" in source
+    assert "handeye_output_child_frame" in source
     assert "console_port" in source
     assert "dobot_control_console = dobot_ros2.control_console:main" in setup
     assert 'share/{package_name}/web' in setup

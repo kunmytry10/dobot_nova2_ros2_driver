@@ -35,6 +35,7 @@ HANDEYE_SAMPLES_DIR ?= handeye_samples
 HANDEYE_RESULT_FILE ?=
 HANDEYE_DIAGNOSE_FILE ?=
 HANDEYE_STATIC_TF_FILE ?= $(WS)/handeye_result.yaml
+HANDEYE_STATIC_TF_CHILD_FRAME ?= camera_link
 HANDEYE_PARENT_FRAME ?= Link6
 HANDEYE_CHILD_FRAME ?= camera_color_optical_frame
 HANDEYE_METHOD ?= TSAI
@@ -50,13 +51,13 @@ driver:
 	$(ROS_ENV) && ros2 run dobot_ros2 dobot_motion_server --ros-args --params-file $(PARAMS)
 
 bringup:
-	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_bringup.launch.py params_file:=$(PARAMS) rviz:=false handeye_result_file:=$(HANDEYE_STATIC_TF_FILE)
+	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_bringup.launch.py params_file:=$(PARAMS) rviz:=false handeye_result_file:=$(HANDEYE_STATIC_TF_FILE) handeye_output_child_frame:=$(HANDEYE_STATIC_TF_CHILD_FRAME)
 
 rviz:
-	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_bringup.launch.py params_file:=$(PARAMS) rviz:=true handeye_result_file:=$(HANDEYE_STATIC_TF_FILE)
+	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_bringup.launch.py params_file:=$(PARAMS) rviz:=true handeye_result_file:=$(HANDEYE_STATIC_TF_FILE) handeye_output_child_frame:=$(HANDEYE_STATIC_TF_CHILD_FRAME)
 
 control-ui:
-	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_control_console.launch.py params_file:=$(PARAMS) console_host:=$(CONSOLE_HOST) console_port:=$(CONSOLE_PORT) start_driver:=true start_state_publisher:=true handeye_result_file:=$(HANDEYE_STATIC_TF_FILE)
+	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_control_console.launch.py params_file:=$(PARAMS) console_host:=$(CONSOLE_HOST) console_port:=$(CONSOLE_PORT) start_driver:=true start_state_publisher:=true handeye_result_file:=$(HANDEYE_STATIC_TF_FILE) handeye_output_child_frame:=$(HANDEYE_STATIC_TF_CHILD_FRAME)
 
 control-ui-only:
 	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_control_console.launch.py params_file:=$(PARAMS) console_host:=$(CONSOLE_HOST) console_port:=$(CONSOLE_PORT) start_driver:=false start_state_publisher:=false
@@ -137,7 +138,7 @@ handeye-diagnose:
 	$(ROS_ENV) && ros2 run dobot_handeye dobot_handeye_diagnose --dataset "$(DATASET)" --diagnose-file "$(HANDEYE_DIAGNOSE_FILE)"
 
 handeye-tf:
-	$(ROS_ENV) && ros2 run dobot_handeye dobot_handeye_tf --dataset "$(DATASET)" --result-file "$(HANDEYE_RESULT_FILE)"
+	$(ROS_ENV) && ros2 run dobot_handeye dobot_handeye_tf --dataset "$(DATASET)" --result-file "$(HANDEYE_RESULT_FILE)" --output-child-frame $(HANDEYE_STATIC_TF_CHILD_FRAME)
 
 handeye-board-tf:
 	$(ROS_ENV) && ros2 run dobot_handeye dobot_handeye_board_tf --ros-args --params-file $(PARAMS)

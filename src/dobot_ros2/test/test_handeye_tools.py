@@ -21,6 +21,7 @@ from dobot_handeye.handeye_common import (
 )
 from dobot_handeye.handeye_diagnose import diagnose_handeye_samples
 from dobot_handeye.handeye_solve import default_result_file, solve_handeye_from_samples
+from dobot_handeye.handeye_tf import handeye_matrix_for_output_child
 from dobot_handeye.handeye_validate import validate_handeye_samples
 
 
@@ -160,6 +161,26 @@ def test_default_result_file_uses_dataset_result_yaml(tmp_path):
     assert default_result_file(str(dataset), None) == str(dataset / "result.yaml")
     assert default_result_file(None, None) == "handeye_result.yaml"
     assert default_result_file(str(dataset), "custom.yaml") == "custom.yaml"
+
+
+def test_handeye_tf_can_publish_camera_tree_root_from_optical_result():
+    link6_to_optical = xyz_quat_to_matrix(
+        [0.10, 0.02, 0.03],
+        [0.0, 0.0, math.sin(math.pi / 8.0), math.cos(math.pi / 8.0)],
+    )
+    camera_link_to_optical = xyz_quat_to_matrix(
+        [0.01, -0.02, 0.04],
+        [math.sin(math.pi / 12.0), 0.0, 0.0, math.cos(math.pi / 12.0)],
+    )
+
+    result = handeye_matrix_for_output_child(
+        link6_to_optical,
+        "camera_color_optical_frame",
+        "camera_link",
+        lambda target, source: camera_link_to_optical,
+    )
+
+    assert np.allclose(result @ camera_link_to_optical, link6_to_optical, atol=1e-9)
 
 
 def test_validate_handeye_samples_reports_fixed_board_consistency():

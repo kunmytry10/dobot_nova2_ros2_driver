@@ -28,6 +28,7 @@ def generate_launch_description():
             DeclareLaunchArgument("rviz", default_value="true"),
             DeclareLaunchArgument("handeye_tf", default_value="true"),
             DeclareLaunchArgument("handeye_result_file", default_value=""),
+            DeclareLaunchArgument("handeye_output_child_frame", default_value="camera_link"),
             DeclareLaunchArgument(
                 "rviz_config",
                 default_value=PathJoinSubstitution(
@@ -44,6 +45,10 @@ def generate_launch_description():
                     ("rviz_config", LaunchConfiguration("rviz_config")),
                     ("handeye_tf", LaunchConfiguration("handeye_tf")),
                     ("handeye_result_file", LaunchConfiguration("handeye_result_file")),
+                    (
+                        "handeye_output_child_frame",
+                        LaunchConfiguration("handeye_output_child_frame"),
+                    ),
                 ],
             ),
         ]

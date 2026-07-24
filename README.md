@@ -37,7 +37,7 @@ make rviz       # bringup + RViz
 make control-ui # driver + robot_state_publisher + Web 控制台 + 可选手眼 static TF
 ```
 
-手眼 static TF 默认读取 `HANDEYE_STATIC_TF_FILE=$(WS)/handeye_result.yaml`。如果文件不存在，bringup 会跳过相机 TF，不影响机械臂 driver 启动。
+手眼 static TF 默认读取 `HANDEYE_STATIC_TF_FILE=$(WS)/handeye_result.yaml`。如果文件不存在，bringup 会跳过相机 TF，不影响机械臂 driver 启动。默认发布到 Orbbec 相机树根 `camera_link`，再由官方 driver 发布 `camera_link -> camera_color_optical_frame` 等相机内部 TF。
 
 ## 常用命令
 
@@ -195,6 +195,8 @@ make handeye-board-tf
 ```bash
 cp handeye_datasets/20260723_153012/result.yaml handeye_result.yaml
 ```
+
+标定结果文件保存的是 `Link6 -> camera_color_optical_frame`。启动时工具会结合 Orbbec 官方相机内部 TF，默认换算并发布 `Link6 -> camera_link`，避免 `camera_color_optical_frame` 同时有两个 parent。
 
 求解和验证会写入：
 
