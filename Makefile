@@ -26,6 +26,8 @@ CAMERA_LAUNCH ?= gemini_330_series.launch.py
 CAMERA_NAME ?= camera
 CAMERA_SERIAL ?=
 CAMERA_USB_PORT ?=
+CAMERA_SERIAL_ARG = $(if $(strip $(CAMERA_SERIAL)),serial_number:=$(CAMERA_SERIAL),)
+CAMERA_USB_PORT_ARG = $(if $(strip $(CAMERA_USB_PORT)),usb_port:=$(CAMERA_USB_PORT),)
 DATASET ?=
 HANDEYE_DATASET_ROOT ?= handeye_datasets
 HANDEYE_DATASET_NAME ?=
@@ -111,7 +113,7 @@ gripper-move:
 	$(ROS_ENV) && ros2 service call /gripper_move dobot_interfaces/srv/GripperCommand "{opening_mm: $(GRIPPER_OPENING_MM), position_permille: $(GRIPPER_POS), force_percent: $(GRIPPER_FORCE), force_n: $(GRIPPER_FORCE_N), wait: $(WAIT), timeout_sec: $(TIMEOUT)}"
 
 camera:
-	$(ROS_ENV) && ros2 launch dobot_camera gemini305.launch.py orbbec_launch_file:=$(CAMERA_LAUNCH) camera_name:=$(CAMERA_NAME) serial_number:=$(CAMERA_SERIAL) usb_port:=$(CAMERA_USB_PORT)
+	$(ROS_ENV) && ros2 launch dobot_camera gemini305.launch.py orbbec_launch_file:=$(CAMERA_LAUNCH) camera_name:=$(CAMERA_NAME) $(CAMERA_SERIAL_ARG) $(CAMERA_USB_PORT_ARG)
 
 camera-topics:
 	$(ROS_ENV) && ros2 topic list | grep -E "^/camera/"

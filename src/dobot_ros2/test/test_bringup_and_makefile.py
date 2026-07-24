@@ -94,6 +94,8 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "CAMERA_NAME ?= camera" in source
     assert "CAMERA_SERIAL ?=" in source
     assert "CAMERA_USB_PORT ?=" in source
+    assert "CAMERA_SERIAL_ARG = $(if $(strip $(CAMERA_SERIAL)),serial_number:=$(CAMERA_SERIAL),)" in source
+    assert "CAMERA_USB_PORT_ARG = $(if $(strip $(CAMERA_USB_PORT)),usb_port:=$(CAMERA_USB_PORT),)" in source
     assert "HANDEYE_DATASET_ROOT ?= handeye_datasets" in source
     assert "HANDEYE_RESULT_FILE ?=" in source
     assert "HANDEYE_DIAGNOSE_FILE ?=" in source
@@ -102,6 +104,7 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "dobot_control_console.launch.py" in source
     assert "--packages-up-to dobot_camera dobot_handeye dobot_ros2" in source
     assert "ros2 launch dobot_camera gemini305.launch.py" in source
+    assert "serial_number:=$(CAMERA_SERIAL) usb_port:=$(CAMERA_USB_PORT)" not in source
     assert "orbbec_camera $(CAMERA_LAUNCH)" not in source
     assert "ros2 run dobot_handeye dobot_handeye_check" in source
     assert "ros2 run dobot_handeye dobot_handeye_capture" in source
