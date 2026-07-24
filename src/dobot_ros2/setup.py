@@ -28,13 +28,6 @@ setup(
         "console_scripts": [
             "dobot_motion_server = dobot_ros2.driver_node:main",
             "dobot_control_console = dobot_ros2.control_console:main",
-            "dobot_handeye_check = dobot_ros2.handeye_check:main",
-            "dobot_handeye_capture = dobot_ros2.handeye_capture:main",
-            "dobot_handeye_solve = dobot_ros2.handeye_solve:main",
-            "dobot_handeye_validate = dobot_ros2.handeye_validate:main",
-            "dobot_handeye_diagnose = dobot_ros2.handeye_diagnose:main",
-            "dobot_handeye_tf = dobot_ros2.handeye_tf:main",
-            "dobot_handeye_board_tf = dobot_ros2.handeye_board_tf:main",
         ],
     },
 )

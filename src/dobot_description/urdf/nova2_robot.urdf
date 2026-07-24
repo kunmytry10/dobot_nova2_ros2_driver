@@ -4,7 +4,7 @@
      For more information, please see http:/wiki.ros.org/sw_urdf_exporter -->
 <robot
   name="nova2_robot">
-  <link name="dummy_link" />
+  <link name="map" />
   <link
     name="base_link">
     <inertial>
@@ -49,7 +49,7 @@
     name="dummy_joint"
     type="fixed">
     <parent
-      link="dummy_link" />
+      link="map" />
     <child
       link="base_link" />
   </joint>

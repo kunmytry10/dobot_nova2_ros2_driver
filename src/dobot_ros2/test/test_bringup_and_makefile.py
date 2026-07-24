@@ -4,6 +4,7 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = PACKAGE_ROOT.parents[2]
 WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
+HANDEYE_PACKAGE_ROOT = WORKSPACE_ROOT / "src" / "dobot_handeye"
 
 
 def test_bringup_launch_is_runtime_entrypoint_with_optional_rviz():
@@ -12,6 +13,10 @@ def test_bringup_launch_is_runtime_entrypoint_with_optional_rviz():
 
     assert "dobot_motion_server" in source
     assert "robot_state_publisher" in source
+    assert "dobot_handeye" in source
+    assert "dobot_handeye_tf" in source
+    assert "handeye_tf" in source
+    assert "handeye_result_file" in source
     assert "DeclareLaunchArgument(\"rviz\", default_value=\"false\")" in source
     assert "IfCondition(rviz)" in source
     assert "nova2_robot.urdf" in source
@@ -89,15 +94,16 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "HANDEYE_RESULT_FILE ?=" in source
     assert "HANDEYE_DIAGNOSE_FILE ?=" in source
     assert "HANDEYE_METHOD ?= TSAI" in source
+    assert "HANDEYE_STATIC_TF_FILE ?= $(WS)/handeye_result.yaml" in source
     assert "dobot_control_console.launch.py" in source
     assert "ros2 launch orbbec_camera $(CAMERA_LAUNCH)" in source
-    assert "ros2 run dobot_ros2 dobot_handeye_check" in source
-    assert "ros2 run dobot_ros2 dobot_handeye_capture" in source
-    assert "ros2 run dobot_ros2 dobot_handeye_solve" in source
-    assert "ros2 run dobot_ros2 dobot_handeye_validate" in source
-    assert "ros2 run dobot_ros2 dobot_handeye_diagnose" in source
-    assert "ros2 run dobot_ros2 dobot_handeye_tf" in source
-    assert "ros2 run dobot_ros2 dobot_handeye_board_tf" in source
+    assert "ros2 run dobot_handeye dobot_handeye_check" in source
+    assert "ros2 run dobot_handeye dobot_handeye_capture" in source
+    assert "ros2 run dobot_handeye dobot_handeye_solve" in source
+    assert "ros2 run dobot_handeye dobot_handeye_validate" in source
+    assert "ros2 run dobot_handeye dobot_handeye_diagnose" in source
+    assert "ros2 run dobot_handeye dobot_handeye_tf" in source
+    assert "ros2 run dobot_handeye dobot_handeye_board_tf" in source
     assert "ros2 service call /emergency_stop std_srvs/srv/Trigger" in source
     assert "ros2 service call /gripper_move dobot_interfaces/srv/GripperCommand" in source
     assert "force_n: $(GRIPPER_FORCE_N)" in source
@@ -108,12 +114,27 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "SHELL := /bin/bash" in source
     assert "WS ?= $(CURDIR)" in source
     assert "WS ?= /home/ros/ws" not in source
+    assert "--packages-up-to dobot_handeye dobot_ros2" in source
     assert "source /opt/ros/humble/setup.bash" in source
     assert "docker compose" not in source
     assert 'grep -E "^/tf$$|^/tf_static$$"' in source
     assert "ros2 service call /movep dobot_interfaces/srv/MoveCommand" in source
     assert "^/dobot_state$$" in source
     assert "^/gripper_state$$" in source
+
+
+def test_description_and_rviz_use_map_as_root_frame():
+    urdf = (
+        WORKSPACE_ROOT / "src" / "dobot_description" / "urdf" / "nova2_robot.urdf"
+    ).read_text()
+    rviz = (PACKAGE_ROOT / "rviz" / "nova2.rviz").read_text()
+
+    assert '<link name="map"' in urdf
+    assert 'link="map"' in urdf
+    assert "dummy_link" not in urdf
+    assert "Fixed Frame: map" in rviz
+    assert "Target Frame: map" in rviz
+    assert "dummy_link" not in rviz
 
 
 def test_handeye_config_documents_camera_topics_and_board():
@@ -140,21 +161,29 @@ def test_control_console_launch_and_package_entrypoint_are_installed():
     assert "dobot_control_console" in source
     assert "start_driver" in source
     assert "start_state_publisher" in source
+    assert "dobot_handeye" in source
+    assert "dobot_handeye_tf" in source
+    assert "handeye_tf" in source
+    assert "handeye_result_file" in source
     assert "console_port" in source
     assert "dobot_control_console = dobot_ros2.control_console:main" in setup
     assert 'share/{package_name}/web' in setup
 
 
 def test_handeye_console_entrypoints_are_installed():
-    setup = (PACKAGE_ROOT / "setup.py").read_text()
+    driver_setup = (PACKAGE_ROOT / "setup.py").read_text()
+    handeye_setup = (HANDEYE_PACKAGE_ROOT / "setup.py").read_text()
+    package_xml = (HANDEYE_PACKAGE_ROOT / "package.xml").read_text()
 
-    assert "dobot_handeye_check = dobot_ros2.handeye_check:main" in setup
-    assert "dobot_handeye_capture = dobot_ros2.handeye_capture:main" in setup
-    assert "dobot_handeye_solve = dobot_ros2.handeye_solve:main" in setup
-    assert "dobot_handeye_validate = dobot_ros2.handeye_validate:main" in setup
-    assert "dobot_handeye_diagnose = dobot_ros2.handeye_diagnose:main" in setup
-    assert "dobot_handeye_tf = dobot_ros2.handeye_tf:main" in setup
-    assert "dobot_handeye_board_tf = dobot_ros2.handeye_board_tf:main" in setup
+    assert "<name>dobot_handeye</name>" in package_xml
+    assert "dobot_handeye_check = dobot_handeye.handeye_check:main" in handeye_setup
+    assert "dobot_handeye_capture = dobot_handeye.handeye_capture:main" in handeye_setup
+    assert "dobot_handeye_solve = dobot_handeye.handeye_solve:main" in handeye_setup
+    assert "dobot_handeye_validate = dobot_handeye.handeye_validate:main" in handeye_setup
+    assert "dobot_handeye_diagnose = dobot_handeye.handeye_diagnose:main" in handeye_setup
+    assert "dobot_handeye_tf = dobot_handeye.handeye_tf:main" in handeye_setup
+    assert "dobot_handeye_board_tf = dobot_handeye.handeye_board_tf:main" in handeye_setup
+    assert "dobot_handeye_check = dobot_ros2.handeye_check:main" not in driver_setup
 
 
 def test_control_console_serializes_ros_numpy_arrays():

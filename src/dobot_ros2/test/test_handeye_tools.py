@@ -6,9 +6,12 @@ import numpy as np
 import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+WORKSPACE_ROOT = PACKAGE_ROOT.parents[2] / "workspace"
+HANDEYE_PACKAGE_ROOT = WORKSPACE_ROOT / "src" / "dobot_handeye"
 sys.path.insert(0, str(PACKAGE_ROOT))
+sys.path.insert(0, str(HANDEYE_PACKAGE_ROOT))
 
-from dobot_ros2.handeye_common import (
+from dobot_handeye.handeye_common import (
     HandeyeConfigError,
     invert_matrix,
     load_handeye_config,
@@ -16,9 +19,9 @@ from dobot_ros2.handeye_common import (
     matrix_to_xyz_quat,
     xyz_quat_to_matrix,
 )
-from dobot_ros2.handeye_diagnose import diagnose_handeye_samples
-from dobot_ros2.handeye_solve import default_result_file, solve_handeye_from_samples
-from dobot_ros2.handeye_validate import validate_handeye_samples
+from dobot_handeye.handeye_diagnose import diagnose_handeye_samples
+from dobot_handeye.handeye_solve import default_result_file, solve_handeye_from_samples
+from dobot_handeye.handeye_validate import validate_handeye_samples
 
 
 def test_load_handeye_config_uses_meter_units_and_defaults():

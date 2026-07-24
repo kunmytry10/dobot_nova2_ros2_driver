@@ -28,6 +28,7 @@ HANDEYE_DATASET_NAME ?=
 HANDEYE_SAMPLES_DIR ?= handeye_samples
 HANDEYE_RESULT_FILE ?=
 HANDEYE_DIAGNOSE_FILE ?=
+HANDEYE_STATIC_TF_FILE ?= $(WS)/handeye_result.yaml
 HANDEYE_PARENT_FRAME ?= Link6
 HANDEYE_CHILD_FRAME ?= camera_color_optical_frame
 HANDEYE_METHOD ?= TSAI
@@ -36,19 +37,19 @@ ROS_SETUP = source /opt/ros/humble/setup.bash
 ROS_ENV = $(ROS_SETUP) && cd $(WS) && source install/setup.bash
 
 build:
-	$(ROS_SETUP) && cd $(WS) && colcon build --symlink-install --packages-up-to dobot_ros2
+	$(ROS_SETUP) && cd $(WS) && colcon build --symlink-install --packages-up-to dobot_handeye dobot_ros2
 
 driver:
 	$(ROS_ENV) && ros2 run dobot_ros2 dobot_motion_server --ros-args --params-file $(PARAMS)
 
 bringup:
-	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_bringup.launch.py params_file:=$(PARAMS) rviz:=false
+	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_bringup.launch.py params_file:=$(PARAMS) rviz:=false handeye_result_file:=$(HANDEYE_STATIC_TF_FILE)
 
 rviz:
-	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_bringup.launch.py params_file:=$(PARAMS) rviz:=true
+	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_bringup.launch.py params_file:=$(PARAMS) rviz:=true handeye_result_file:=$(HANDEYE_STATIC_TF_FILE)
 
 control-ui:
-	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_control_console.launch.py params_file:=$(PARAMS) console_host:=$(CONSOLE_HOST) console_port:=$(CONSOLE_PORT) start_driver:=true start_state_publisher:=true
+	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_control_console.launch.py params_file:=$(PARAMS) console_host:=$(CONSOLE_HOST) console_port:=$(CONSOLE_PORT) start_driver:=true start_state_publisher:=true handeye_result_file:=$(HANDEYE_STATIC_TF_FILE)
 
 control-ui-only:
 	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_control_console.launch.py params_file:=$(PARAMS) console_host:=$(CONSOLE_HOST) console_port:=$(CONSOLE_PORT) start_driver:=false start_state_publisher:=false
@@ -114,25 +115,25 @@ camera-info:
 	$(ROS_ENV) && ros2 topic echo /camera/color/camera_info --once
 
 handeye-check:
-	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_check --ros-args --params-file $(PARAMS)
+	$(ROS_ENV) && ros2 run dobot_handeye dobot_handeye_check --ros-args --params-file $(PARAMS)
 
 handeye-capture:
-	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_capture --dataset-root $(HANDEYE_DATASET_ROOT) --dataset-name "$(HANDEYE_DATASET_NAME)" --ros-args --params-file $(PARAMS)
+	$(ROS_ENV) && ros2 run dobot_handeye dobot_handeye_capture --dataset-root $(HANDEYE_DATASET_ROOT) --dataset-name "$(HANDEYE_DATASET_NAME)" --ros-args --params-file $(PARAMS)
 
 handeye-solve:
-	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_solve --dataset "$(DATASET)" --samples-dir $(HANDEYE_SAMPLES_DIR) --result-file "$(HANDEYE_RESULT_FILE)" --parent-frame $(HANDEYE_PARENT_FRAME) --child-frame $(HANDEYE_CHILD_FRAME) --method $(HANDEYE_METHOD)
+	$(ROS_ENV) && ros2 run dobot_handeye dobot_handeye_solve --dataset "$(DATASET)" --samples-dir $(HANDEYE_SAMPLES_DIR) --result-file "$(HANDEYE_RESULT_FILE)" --parent-frame $(HANDEYE_PARENT_FRAME) --child-frame $(HANDEYE_CHILD_FRAME) --method $(HANDEYE_METHOD)
 
 handeye-validate:
-	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_validate --dataset "$(DATASET)" --result-file "$(HANDEYE_RESULT_FILE)"
+	$(ROS_ENV) && ros2 run dobot_handeye dobot_handeye_validate --dataset "$(DATASET)" --result-file "$(HANDEYE_RESULT_FILE)"
 
 handeye-diagnose:
-	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_diagnose --dataset "$(DATASET)" --diagnose-file "$(HANDEYE_DIAGNOSE_FILE)"
+	$(ROS_ENV) && ros2 run dobot_handeye dobot_handeye_diagnose --dataset "$(DATASET)" --diagnose-file "$(HANDEYE_DIAGNOSE_FILE)"
 
 handeye-tf:
-	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_tf --dataset "$(DATASET)" --result-file "$(HANDEYE_RESULT_FILE)"
+	$(ROS_ENV) && ros2 run dobot_handeye dobot_handeye_tf --dataset "$(DATASET)" --result-file "$(HANDEYE_RESULT_FILE)"
 
 handeye-board-tf:
-	$(ROS_ENV) && ros2 run dobot_ros2 dobot_handeye_board_tf --ros-args --params-file $(PARAMS)
+	$(ROS_ENV) && ros2 run dobot_handeye dobot_handeye_board_tf --ros-args --params-file $(PARAMS)
 
 teach-start:
 	$(ROS_ENV) && ros2 service call /teach_start dobot_interfaces/srv/TrajectoryCommand "{name: '$(TRAJ)', overwrite: $(OVERWRITE)}"
