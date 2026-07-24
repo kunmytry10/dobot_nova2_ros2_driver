@@ -43,6 +43,7 @@ KEYBOARD_TOPIC ?= /keyboard/input
 KEYBOARD_STEP_MM ?= 5.0
 KEYBOARD_ROT_STEP_DEG ?= 2.0
 KEYBOARD_MOTION_SERVICE ?= movep
+KEYBOARD_GRIPPER_INIT ?= true
 
 ROS_SETUP = source /opt/ros/humble/setup.bash
 ORBBEC_ENV = if [ -f "$(ORBBEC_WS)/install/setup.bash" ]; then source "$(ORBBEC_WS)/install/setup.bash"; fi
@@ -148,7 +149,7 @@ handeye-board-tf:
 	$(ROS_ENV) && ros2 run dobot_handeye dobot_handeye_board_tf --ros-args --params-file $(PARAMS)
 
 keyboard:
-	$(ROS_ENV) && ros2 launch dobot_keyboard keyboard_teleop.launch.py params_file:=$(PARAMS) input_topic:=$(KEYBOARD_TOPIC) translation_step_mm:=$(KEYBOARD_STEP_MM) rotation_step_deg:=$(KEYBOARD_ROT_STEP_DEG) motion_service:=$(KEYBOARD_MOTION_SERVICE) speed:=$(SPEED) acceleration:=$(ACC) wait:=$(WAIT) timeout_sec:=$(TIMEOUT)
+	$(ROS_ENV) && if [ "$(KEYBOARD_GRIPPER_INIT)" = "true" ]; then timeout 10s ros2 service call /gripper_init std_srvs/srv/Trigger "{}" || true; fi && ros2 launch dobot_keyboard keyboard_teleop.launch.py params_file:=$(PARAMS) input_topic:=$(KEYBOARD_TOPIC) translation_step_mm:=$(KEYBOARD_STEP_MM) rotation_step_deg:=$(KEYBOARD_ROT_STEP_DEG) motion_service:=$(KEYBOARD_MOTION_SERVICE) speed:=$(SPEED) acceleration:=$(ACC) wait:=$(WAIT) timeout_sec:=$(TIMEOUT)
 
 keyboard-input:
 	$(ROS_ENV) && ros2 run dobot_keyboard dobot_keyboard_input --ros-args -p input_topic:=$(KEYBOARD_TOPIC)

@@ -31,7 +31,9 @@ def test_makefile_exposes_keyboard_workflows():
     assert "KEYBOARD_STEP_MM ?= 5.0" in source
     assert "KEYBOARD_ROT_STEP_DEG ?= 2.0" in source
     assert "KEYBOARD_MOTION_SERVICE ?= movep" in source
+    assert "KEYBOARD_GRIPPER_INIT ?= true" in source
     assert "--packages-up-to dobot_camera dobot_handeye dobot_keyboard dobot_ros2" in source
+    assert "ros2 service call /gripper_init std_srvs/srv/Trigger" in source
     assert "ros2 launch dobot_keyboard keyboard_teleop.launch.py" in source
     assert "ros2 run dobot_keyboard dobot_keyboard_input" in source
     assert "ros2 run dobot_keyboard dobot_keyboard_teleop" in source
