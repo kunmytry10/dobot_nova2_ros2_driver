@@ -162,18 +162,33 @@ make joy
 | `JOY_ESTOP_BUTTON` | `1` | 急停按钮，默认 B |
 | `JOY_DEADZONE` | `0.25` | 摇杆死区 |
 | `JOY_COORD_TYPE` | `0` | `MoveJog` 坐标系，`0` 为用户坐标系，`1` 为工具坐标系 |
+| `JOY_GRIPPER_INIT` | `true` | 启动手柄控制前先尝试初始化夹爪 |
+| `JOY_GRIPPER_STEP_MM` | `2.0` | LT/RT 每次微调夹爪开口的步长 |
+| `JOY_GRIPPER_FORCE` | `50` | 手柄夹爪命令的默认力百分比 |
+| `JOY_ENABLE_RUMBLE` | `true` | 夹爪检测到物体时尝试发送手柄震动反馈 |
+| `JOY_JOINT_LIMIT_MARGIN_DEG` | `5.0` | 任一关节距离软限位小于该角度时停止 jog |
+| `JOY_X_AXIS_SIGN` | `-1.0` | 左摇杆上下到 X 方向的符号，方向反了改成 `1.0` |
+| `JOY_Y_AXIS_SIGN` | `1.0` | 左摇杆左右到 Y 方向的符号，方向反了改成 `-1.0` |
+| `JOY_Z_AXIS_SIGN` | `-1.0` | 右摇杆上下到 Z 方向的符号，方向反了改成 `1.0` |
+| `JOY_RZ_AXIS_SIGN` | `1.0` | 右摇杆左右到 Rz 方向的符号，方向反了改成 `-1.0` |
 
 默认映射：
 
-| 手柄输入 | MoveJog |
+| 手柄输入 | 功能 |
 |---|---|
-| 左摇杆上下 | `X+` / `X-` |
-| 左摇杆左右 | `Y+` / `Y-` |
-| 右摇杆上下 | `Z+` / `Z-` |
-| 右摇杆左右 | `Rz+` / `Rz-` |
+| 按住 LB | 允许机械臂连续点动 |
+| 左摇杆上下 | `X+` / `X-`，末端前后 |
+| 左摇杆左右 | `Y+` / `Y-`，末端左右 |
+| 右摇杆上下 | `Z+` / `Z-`，末端升降 |
+| 右摇杆左右 | `Rz+` / `Rz-`，末端绕 Z 旋转 |
+| A | 夹爪开/关切换 |
+| LT / RT | 夹爪开口减小 / 增大 |
+| B | 急停 |
+| X | 清除报警 |
+| Back / Start | 停止当前点动 |
 | 松开 deadman 或摇杆回中 | `MoveJog()` 停止点动 |
 
-手柄 teleop 同样订阅 `/dobot_state`。机器人报警、未使能、反馈无效、topic 超时或节点退出时，会主动发送 `MoveJog()` 停止点动。若系统没有 `joy_node`，先安装 ROS2 Humble 的 `joy` 包。
+手柄 teleop 同样订阅 `/dobot_state`、`/joint_states` 和 `/gripper_state`。机器人报警、未使能、反馈无效、topic 超时、节点退出或关节接近软限位时，会主动发送 `MoveJog()` 停止点动。夹爪检测到物体时会向 `/joy/set_feedback` 尝试发送短震动；如果手柄或驱动不支持 force feedback，控制功能不受影响。若系统没有 `joy_node`，先安装 ROS2 Humble 的 `joy` 包。
 
 ## 常用 Topic
 

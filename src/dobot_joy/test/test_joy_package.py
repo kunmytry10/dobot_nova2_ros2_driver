@@ -17,6 +17,8 @@ def test_joy_package_installs_teleop_entrypoint_and_launch_file():
     assert "dobot_joy_teleop" in launch
     assert "joy_node" in launch
     assert "deadman_button_index" in launch
+    assert "toggle_gripper_button_index" in launch
+    assert "enable_rumble" in launch
 
 
 def test_makefile_exposes_joy_workflows():
@@ -28,6 +30,12 @@ def test_makefile_exposes_joy_workflows():
     assert "jog-stop:" in source
     assert "JOY_TOPIC ?= /joy" in source
     assert "JOY_DEADMAN_BUTTON ?= 4" in source
+    assert "JOY_GRIPPER_INIT ?= true" in source
+    assert "JOY_GRIPPER_STEP_MM ?= 2.0" in source
+    assert "JOY_ENABLE_RUMBLE ?= true" in source
+    assert "JOY_X_AXIS_SIGN ?= -1.0" in source
+    assert "JOY_Z_AXIS_SIGN ?= -1.0" in source
+    assert "gripper_init" in source
     assert "--packages-up-to dobot_camera dobot_handeye dobot_keyboard dobot_joy dobot_ros2" in source
     assert "ros2 launch dobot_joy joy_teleop.launch.py" in source
     assert "ros2 run dobot_joy dobot_joy_teleop" in source
