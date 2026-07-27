@@ -91,6 +91,10 @@ class JoyTeleopNode(Node):
             z_axis_sign=float(self.get_parameter("joy.z_axis_sign").value),
             rz_axis_index=int(self.get_parameter("joy.rz_axis_index").value),
             rz_axis_sign=float(self.get_parameter("joy.rz_axis_sign").value),
+            rx_axis_index=int(self.get_parameter("joy.rx_axis_index").value),
+            rx_axis_sign=float(self.get_parameter("joy.rx_axis_sign").value),
+            ry_axis_index=int(self.get_parameter("joy.ry_axis_index").value),
+            ry_axis_sign=float(self.get_parameter("joy.ry_axis_sign").value),
             lt_axis_index=int(self.get_parameter("joy.lt_axis_index").value),
             rt_axis_index=int(self.get_parameter("joy.rt_axis_index").value),
             deadzone=float(self.get_parameter("joy.deadzone").value),
@@ -105,9 +109,10 @@ class JoyTeleopNode(Node):
         self.trigger_neutral_axes = None
         self.latest_gripper_opening_mm = None
         self.gripper_busy = False
+        self.gripper_stop_pending = False
         self.last_gripper_command_time = 0.0
         self.active_gripper_axis = None
-        self.latest_object_detected = False
+        self.latest_gripper_gripped = False
         self.rumble_until = 0.0
         self.jog_client = self.create_client(JogCommand, "/move_jog")
         self.estop_client = self.create_client(Trigger, "/emergency_stop")
@@ -150,6 +155,10 @@ class JoyTeleopNode(Node):
         self.declare_parameter("joy.z_axis_sign", 1.0)
         self.declare_parameter("joy.rz_axis_index", 3)
         self.declare_parameter("joy.rz_axis_sign", -1.0)
+        self.declare_parameter("joy.rx_axis_index", 7)
+        self.declare_parameter("joy.rx_axis_sign", -1.0)
+        self.declare_parameter("joy.ry_axis_index", 6)
+        self.declare_parameter("joy.ry_axis_sign", -1.0)
         self.declare_parameter("joy.lt_axis_index", 2)
         self.declare_parameter("joy.rt_axis_index", 5)
         self.declare_parameter("joy.deadzone", 0.25)
@@ -194,9 +203,10 @@ class JoyTeleopNode(Node):
     def _on_gripper_status(self, msg: GripperStatus):
         if msg.success:
             self.latest_gripper_opening_mm = msg.opening_mm
-        if msg.object_detected and not self.latest_object_detected:
+        gripped = bool(msg.object_detected or msg.grip_state == 2)
+        if gripped and not self.latest_gripper_gripped:
             self._start_rumble()
-        self.latest_object_detected = bool(msg.object_detected)
+        self.latest_gripper_gripped = gripped
 
     def _on_joy(self, msg: Joy):
         joy_time = time.monotonic()
@@ -384,8 +394,8 @@ class JoyTeleopNode(Node):
 
         if requested_axis is None:
             if self.active_gripper_axis is not None:
+                self.active_gripper_axis = None
                 self._stop_gripper_motion()
-            self.active_gripper_axis = None
             return
 
         if requested_axis == self.active_gripper_axis:
@@ -462,13 +472,10 @@ class JoyTeleopNode(Node):
                 self.gripper_busy = False
 
     def _stop_gripper_motion(self):
-        if self.latest_gripper_opening_mm is not None:
-            self._move_gripper(
-                self.latest_gripper_opening_mm,
-                "gripper jog stop",
-                allow_busy=True,
-            )
+        self.gripper_stop_pending = True
+        if self.gripper_busy:
             return
+        self.gripper_stop_pending = False
         self._request_gripper_state("stop")
 
     def _move_gripper(self, opening_mm: float, label: str, allow_busy: bool = False):
@@ -502,6 +509,9 @@ class JoyTeleopNode(Node):
             self.get_logger().error(f"{label} service failed: {exc}")
         finally:
             self.gripper_busy = False
+            if self.gripper_stop_pending and self.active_gripper_axis is None:
+                self.gripper_stop_pending = False
+                self._request_gripper_state("stop")
 
     def _start_rumble(self):
         if not self.enable_rumble:

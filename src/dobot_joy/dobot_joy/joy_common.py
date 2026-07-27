@@ -12,6 +12,10 @@ class JoyMapping:
     z_axis_sign: float = 1.0
     rz_axis_index: int = 3
     rz_axis_sign: float = -1.0
+    rx_axis_index: int = 7
+    rx_axis_sign: float = -1.0
+    ry_axis_index: int = 6
+    ry_axis_sign: float = -1.0
     lt_axis_index: int = 2
     rt_axis_index: int = 5
     deadzone: float = 0.25
@@ -36,6 +40,8 @@ def axis_to_jog(axes: Sequence[float], mapping: JoyMapping) -> Optional[str]:
         _axis_value(axes, mapping.y_axis_index, mapping.y_axis_sign, "Y"),
         _axis_value(axes, mapping.z_axis_index, mapping.z_axis_sign, "Z"),
         _axis_value(axes, mapping.rz_axis_index, mapping.rz_axis_sign, "Rz"),
+        _axis_value(axes, mapping.rx_axis_index, mapping.rx_axis_sign, "Rx"),
+        _axis_value(axes, mapping.ry_axis_index, mapping.ry_axis_sign, "Ry"),
     ]
     candidates = [candidate for candidate in candidates if candidate[0] is not None]
     if not candidates:

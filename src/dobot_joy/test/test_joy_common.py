@@ -28,6 +28,10 @@ def test_axis_to_jog_uses_dominant_axis_and_deadzone():
     assert axis_to_jog([-0.8, 0.2, 0.0, 0.0, 0.0], mapping) == "Y+"
     assert axis_to_jog([0.0, 0.0, 0.0, 0.0, -0.9], mapping) == "Z-"
     assert axis_to_jog([0.0, 0.0, 0.0, -0.9, 0.0], mapping) == "Rz+"
+    assert axis_to_jog([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0], mapping) == "Ry+"
+    assert axis_to_jog([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], mapping) == "Ry-"
+    assert axis_to_jog([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0], mapping) == "Rx+"
+    assert axis_to_jog([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], mapping) == "Rx-"
     assert axis_to_jog([0.1, 0.1, 0.0, 0.0, 0.0], mapping) is None
 
 

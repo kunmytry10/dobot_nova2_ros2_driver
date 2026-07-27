@@ -22,6 +22,9 @@ def test_joy_package_installs_teleop_entrypoint_and_launch_file():
     assert "enable_rumble" in launch
     assert "autorepeat_rate" in launch
     assert "diagnostics_topic" in launch
+    teleop = (PACKAGE_ROOT / "dobot_joy" / "joy_teleop.py").read_text()
+    assert "gripper_stop_pending" in teleop
+    assert "msg.grip_state == 2" in teleop
 
 
 def test_makefile_exposes_joy_workflows():
@@ -40,6 +43,8 @@ def test_makefile_exposes_joy_workflows():
     assert "JOY_Y_AXIS_SIGN ?= -1.0" in source
     assert "JOY_Z_AXIS_SIGN ?= 1.0" in source
     assert "JOY_RZ_AXIS_SIGN ?= -1.0" in source
+    assert "JOY_RX_AXIS_SIGN ?= -1.0" in source
+    assert "JOY_RY_AXIS_SIGN ?= -1.0" in source
     assert "JOY_AUTOREPEAT_RATE ?= 50.0" in source
     assert "JOY_DIAGNOSTICS_TOPIC ?= /joy/teleop_diagnostics" in source
     assert "gripper_init" in source

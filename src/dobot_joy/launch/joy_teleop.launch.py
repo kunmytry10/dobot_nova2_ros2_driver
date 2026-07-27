@@ -26,6 +26,8 @@ def generate_launch_description():
             DeclareLaunchArgument("y_axis_sign", default_value="-1.0"),
             DeclareLaunchArgument("z_axis_sign", default_value="1.0"),
             DeclareLaunchArgument("rz_axis_sign", default_value="-1.0"),
+            DeclareLaunchArgument("rx_axis_sign", default_value="-1.0"),
+            DeclareLaunchArgument("ry_axis_sign", default_value="-1.0"),
             DeclareLaunchArgument("gripper_step_mm", default_value="2.0"),
             DeclareLaunchArgument("gripper_force_percent", default_value="50"),
             DeclareLaunchArgument("enable_rumble", default_value="true"),
@@ -82,6 +84,12 @@ def generate_launch_description():
                         ),
                         "joy.rz_axis_sign": ParameterValue(
                             LaunchConfiguration("rz_axis_sign"), value_type=float
+                        ),
+                        "joy.rx_axis_sign": ParameterValue(
+                            LaunchConfiguration("rx_axis_sign"), value_type=float
+                        ),
+                        "joy.ry_axis_sign": ParameterValue(
+                            LaunchConfiguration("ry_axis_sign"), value_type=float
                         ),
                         "joy.coord_type": ParameterValue(
                             LaunchConfiguration("coord_type"), value_type=int

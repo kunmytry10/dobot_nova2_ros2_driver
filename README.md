@@ -172,6 +172,8 @@ make joy
 | `JOY_Y_AXIS_SIGN` | `-1.0` | 左摇杆左右到 Y 方向的符号，方向反了改成 `1.0` |
 | `JOY_Z_AXIS_SIGN` | `1.0` | 右摇杆上下到 Z 方向的符号，方向反了改成 `-1.0` |
 | `JOY_RZ_AXIS_SIGN` | `-1.0` | 右摇杆左右到 Rz 方向的符号，方向反了改成 `1.0` |
+| `JOY_RX_AXIS_SIGN` | `-1.0` | DPad 上下到 Rx 方向的符号，方向反了改成 `1.0` |
+| `JOY_RY_AXIS_SIGN` | `-1.0` | DPad 左右到 Ry 方向的符号，方向反了改成 `1.0` |
 
 默认映射：
 
@@ -182,14 +184,16 @@ make joy
 | 左摇杆左右 | `Y+` / `Y-`，末端左右 |
 | 右摇杆上下 | `Z+` / `Z-`，末端升降 |
 | 右摇杆左右 | `Rz+` / `Rz-`，末端绕 Z 旋转 |
+| DPad 上下 | `Rx+` / `Rx-`，末端绕 X 旋转 |
+| DPad 左右 | `Ry+` / `Ry-`，末端绕 Y 旋转 |
 | A | 夹爪开/关切换 |
-| LT / RT | 按住夹爪持续关闭 / 打开，松开时发送当前开口作为停止目标 |
+| LT / RT | 按住夹爪持续关闭 / 打开，松开时读取实时开口并发送保持目标 |
 | B | 急停 |
 | X | 清除报警 |
 | Back / Start | 停止当前点动 |
 | 松开 deadman 或摇杆回中 | `MoveJog()` 停止点动 |
 
-手柄 teleop 同样订阅 `/dobot_state`、`/joint_states` 和 `/gripper_state`。机器人报警、未使能、反馈无效、topic 超时、节点退出或关节接近软限位时，会主动发送 `MoveJog()` 停止点动。夹爪检测到物体时会向 `/joy/set_feedback` 尝试发送短震动；如果手柄或驱动不支持 force feedback，控制功能不受影响。若系统没有 `joy_node`，先安装 ROS2 Humble 的 `joy` 包。
+手柄 teleop 同样订阅 `/dobot_state`、`/joint_states` 和 `/gripper_state`。机器人报警、未使能、反馈无效、topic 超时、节点退出或关节接近软限位时，会主动发送 `MoveJog()` 停止点动。夹爪 `object_detected=true` 或 `grip_state=2` 时会向 `/joy/set_feedback` 尝试发送短震动；如果手柄或驱动不支持 force feedback，控制功能不受影响。若系统没有 `joy_node`，先安装 ROS2 Humble 的 `joy` 包。
 
 ## 常用 Topic
 
