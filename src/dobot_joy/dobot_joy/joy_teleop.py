@@ -184,12 +184,12 @@ class JoyTeleopNode(Node):
     def _on_dobot_state(self, msg: DobotState):
         self.latest_state = msg
         if not self._state_allows_jog(log=False):
-            self._stop_jog(force=True)
+            self._stop_jog()
 
     def _on_joint_state(self, msg: JointState):
         self.latest_joint_degrees = [degrees(position) for position in msg.position[:6]]
         if self.current_axis is not None and not self._joints_allow_jog(log=True):
-            self._stop_jog(force=True)
+            self._stop_jog()
 
     def _on_gripper_status(self, msg: GripperStatus):
         if msg.success:
@@ -214,26 +214,26 @@ class JoyTeleopNode(Node):
         if self._button_edge(msg.buttons, self.toggle_gripper_button_index):
             self._toggle_gripper()
         if any(button_pressed(msg.buttons, index) for index in self.stop_button_indices):
-            self._stop_jog(force=True)
+            self._stop_jog()
             self.latest_buttons = list(msg.buttons)
             return
         self._handle_gripper_axis(msg.axes)
         if not deadman_pressed(msg.buttons, self.deadman_button_index):
-            self._stop_jog(force=True)
+            self._stop_jog()
             self.latest_buttons = list(msg.buttons)
             return
         if not self._state_allows_jog(log=True):
-            self._stop_jog(force=True)
+            self._stop_jog()
             self.latest_buttons = list(msg.buttons)
             return
         if not self._joints_allow_jog(log=True):
-            self._stop_jog(force=True)
+            self._stop_jog()
             self.latest_buttons = list(msg.buttons)
             return
 
         axis = axis_to_jog(msg.axes, self.mapping)
         if axis is None:
-            self._stop_jog(force=True)
+            self._stop_jog()
             self.latest_buttons = list(msg.buttons)
             return
         if axis == self.current_axis:
