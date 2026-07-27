@@ -9,15 +9,20 @@ def test_keyboard_package_installs_nodes_and_launch_file():
     package_xml = (PACKAGE_ROOT / "package.xml").read_text()
     setup = (PACKAGE_ROOT / "setup.py").read_text()
     launch = (PACKAGE_ROOT / "launch" / "keyboard_teleop.launch.py").read_text()
+    jog_launch = (PACKAGE_ROOT / "launch" / "keyboard_jog.launch.py").read_text()
 
     assert "<name>dobot_keyboard</name>" in package_xml
     assert "<exec_depend>dobot_interfaces</exec_depend>" in package_xml
     assert "<exec_depend>std_msgs</exec_depend>" in package_xml
     assert "dobot_keyboard_input = dobot_keyboard.keyboard_input:main" in setup
+    assert "dobot_keyboard_jog_input = dobot_keyboard.keyboard_jog_input:main" in setup
     assert "dobot_keyboard_teleop = dobot_keyboard.keyboard_teleop:main" in setup
     assert 'share/{package_name}/launch' in setup
     assert "dobot_keyboard_input" in launch
     assert "dobot_keyboard_teleop" in launch
+    assert "dobot_keyboard_jog_input" in jog_launch
+    assert '"keyboard.mode": "jog"' in jog_launch
+    assert "device" in jog_launch
     assert "input_topic" in launch
 
 
@@ -25,9 +30,13 @@ def test_makefile_exposes_keyboard_workflows():
     source = (WORKSPACE_ROOT / "Makefile").read_text()
 
     assert "keyboard:" in source
+    assert "keyboard-jog:" in source
     assert "keyboard-input:" in source
+    assert "keyboard-jog-input:" in source
     assert "keyboard-teleop:" in source
     assert "KEYBOARD_TOPIC ?= /keyboard/input" in source
+    assert "KEYBOARD_DEV ?= /dev/input/event0" in source
+    assert "KEYBOARD_JOG_COORD_TYPE ?= 0" in source
     assert "KEYBOARD_STEP_MM ?= 5.0" in source
     assert "KEYBOARD_ROT_STEP_DEG ?= 2.0" in source
     assert "KEYBOARD_MOTION_SERVICE ?= movep" in source
@@ -35,5 +44,7 @@ def test_makefile_exposes_keyboard_workflows():
     assert "--packages-up-to dobot_camera dobot_handeye dobot_keyboard dobot_joy dobot_ros2" in source
     assert "ros2 service call /gripper_init std_srvs/srv/Trigger" in source
     assert "ros2 launch dobot_keyboard keyboard_teleop.launch.py" in source
+    assert "ros2 launch dobot_keyboard keyboard_jog.launch.py" in source
     assert "ros2 run dobot_keyboard dobot_keyboard_input" in source
+    assert "ros2 run dobot_keyboard dobot_keyboard_jog_input" in source
     assert "ros2 run dobot_keyboard dobot_keyboard_teleop" in source

@@ -70,7 +70,9 @@ def test_project_makefile_wraps_common_ros_workflows():
         "handeye-tf:",
         "handeye-board-tf:",
         "keyboard:",
+        "keyboard-jog:",
         "keyboard-input:",
+        "keyboard-jog-input:",
         "keyboard-teleop:",
         "joy:",
         "joy-teleop:",
@@ -111,10 +113,12 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "HANDEYE_STATIC_TF_FILE ?= $(WS)/handeye_result.yaml" in source
     assert "HANDEYE_STATIC_TF_CHILD_FRAME ?= camera_link" in source
     assert "KEYBOARD_TOPIC ?= /keyboard/input" in source
+    assert "KEYBOARD_DEV ?= /dev/input/event0" in source
     assert "KEYBOARD_STEP_MM ?= 5.0" in source
     assert "KEYBOARD_ROT_STEP_DEG ?= 2.0" in source
     assert "KEYBOARD_MOTION_SERVICE ?= movep" in source
     assert "KEYBOARD_GRIPPER_INIT ?= true" in source
+    assert "KEYBOARD_JOG_COORD_TYPE ?= 0" in source
     assert "JOY_TOPIC ?= /joy" in source
     assert "JOY_DEADMAN_BUTTON ?= 4" in source
     assert "dobot_control_console.launch.py" in source
@@ -133,6 +137,7 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "ros2 launch dobot_keyboard keyboard_teleop.launch.py" in source
     assert "ros2 service call /gripper_init std_srvs/srv/Trigger" in source
     assert "ros2 run dobot_keyboard dobot_keyboard_input" in source
+    assert "ros2 run dobot_keyboard dobot_keyboard_jog_input" in source
     assert "ros2 run dobot_keyboard dobot_keyboard_teleop" in source
     assert "ros2 launch dobot_joy joy_teleop.launch.py" in source
     assert "ros2 run dobot_joy dobot_joy_teleop" in source

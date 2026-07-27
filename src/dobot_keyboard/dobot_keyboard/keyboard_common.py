@@ -7,6 +7,25 @@ TOGGLE_GRIPPER_KEY = "space"
 RESET_SIM_KEY = "q"
 ESTOP_KEY = "e"
 QUIT_KEY = "esc"
+EV_KEY = 1
+LINUX_KEY_CODES = {
+    1: QUIT_KEY,
+    16: RESET_SIM_KEY,
+    17: "w",
+    18: ESTOP_KEY,
+    19: "r",
+    20: "t",
+    30: "a",
+    31: "s",
+    32: "d",
+    33: "f",
+    34: "g",
+    44: "z",
+    45: "x",
+    46: "c",
+    47: "v",
+    57: TOGGLE_GRIPPER_KEY,
+}
 
 
 @dataclass(frozen=True)
@@ -37,6 +56,25 @@ def key_to_delta(
     return deltas.get(key)
 
 
+def key_to_jog_axis(key: str) -> Optional[str]:
+    key = normalize_key(key)
+    axes = {
+        "w": "X+",
+        "s": "X-",
+        "a": "Y+",
+        "d": "Y-",
+        "r": "Z+",
+        "f": "Z-",
+        "z": "Rx+",
+        "x": "Rx-",
+        "t": "Ry+",
+        "g": "Ry-",
+        "c": "Rz+",
+        "v": "Rz-",
+    }
+    return axes.get(key)
+
+
 def normalize_key(key: str) -> str:
     value = key.strip().lower()
     if value in {" ", "spacebar"}:
@@ -46,6 +84,29 @@ def normalize_key(key: str) -> str:
     if value in {"\x1b", "escape"}:
         return QUIT_KEY
     return value
+
+
+def parse_key_message(message: str) -> Tuple[str, str]:
+    value = str(message or "").strip().lower()
+    if ":" in value:
+        event, key = value.split(":", 1)
+        event = event.strip()
+        if event in {"down", "up"}:
+            return event, normalize_key(key)
+    return "press", normalize_key(value)
+
+
+def input_event_to_key_message(event_type: int, code: int, value: int) -> Optional[str]:
+    if int(event_type) != EV_KEY:
+        return None
+    key = LINUX_KEY_CODES.get(int(code))
+    if key is None:
+        return None
+    if int(value) == 1:
+        return f"down:{key}"
+    if int(value) == 0:
+        return f"up:{key}"
+    return None
 
 
 def robot_state_allows_motion(

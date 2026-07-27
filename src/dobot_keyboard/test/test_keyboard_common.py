@@ -9,8 +9,11 @@ from dobot_keyboard.keyboard_common import (
     KeyboardSafetyConfig,
     apply_delta,
     decide_gripper_opening,
+    input_event_to_key_message,
     key_to_delta,
+    key_to_jog_axis,
     normalize_key,
+    parse_key_message,
     robot_state_allows_motion,
     target_within_limits,
 )
@@ -77,3 +80,34 @@ def test_robot_state_allows_motion_only_when_enabled_and_error_free():
     ok, reason = robot_state_allows_motion(True, True, 4, 0, 0)
     assert not ok
     assert "not enabled" in reason
+
+
+def test_key_to_jog_axis_maps_cartesian_jog_keys():
+    assert key_to_jog_axis("w") == "X+"
+    assert key_to_jog_axis("s") == "X-"
+    assert key_to_jog_axis("a") == "Y+"
+    assert key_to_jog_axis("d") == "Y-"
+    assert key_to_jog_axis("r") == "Z+"
+    assert key_to_jog_axis("f") == "Z-"
+    assert key_to_jog_axis("z") == "Rx+"
+    assert key_to_jog_axis("x") == "Rx-"
+    assert key_to_jog_axis("t") == "Ry+"
+    assert key_to_jog_axis("g") == "Ry-"
+    assert key_to_jog_axis("c") == "Rz+"
+    assert key_to_jog_axis("v") == "Rz-"
+
+
+def test_key_message_parser_supports_press_and_release_events():
+    assert parse_key_message("down:w") == ("down", "w")
+    assert parse_key_message("up:w") == ("up", "w")
+    assert parse_key_message("w") == ("press", "w")
+    assert parse_key_message("down:space") == ("down", "space")
+
+
+def test_linux_input_key_events_are_converted_to_messages():
+    assert input_event_to_key_message(1, 17, 1) == "down:w"
+    assert input_event_to_key_message(1, 17, 0) == "up:w"
+    assert input_event_to_key_message(1, 17, 2) is None
+    assert input_event_to_key_message(1, 18, 1) == "down:e"
+    assert input_event_to_key_message(1, 1, 1) == "down:esc"
+    assert input_event_to_key_message(3, 17, 1) is None

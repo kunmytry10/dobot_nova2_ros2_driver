@@ -1,6 +1,12 @@
 import rclpy
 from dobot_interfaces.msg import DobotState
-from dobot_interfaces.srv import GetTcpPose, GripperCommand, GripperState, MoveCommand
+from dobot_interfaces.srv import (
+    GetTcpPose,
+    GripperCommand,
+    GripperState,
+    JogCommand,
+    MoveCommand,
+)
 from rclpy.node import Node
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
@@ -13,7 +19,9 @@ from dobot_keyboard.keyboard_common import (
     apply_delta,
     decide_gripper_opening,
     key_to_delta,
+    key_to_jog_axis,
     normalize_key,
+    parse_key_message,
     robot_state_allows_motion,
     target_within_limits,
 )
@@ -42,6 +50,8 @@ class KeyboardTeleopNode(Node):
         self.motion_service_name = _service_name(
             self.get_parameter("keyboard.motion_service").value
         )
+        self.mode = str(self.get_parameter("keyboard.mode").value).strip().lower()
+        self.jog_coord_type = int(self.get_parameter("keyboard.jog_coord_type").value)
         self.user = int(self.get_parameter("keyboard.user").value)
         self.tool = int(self.get_parameter("keyboard.tool").value)
         self.speed = int(self.get_parameter("keyboard.speed").value)
@@ -75,6 +85,7 @@ class KeyboardTeleopNode(Node):
             )
 
         self.busy = False
+        self.current_jog_axis = None
         self.latest_state = None
         self.subscription = self.create_subscription(
             String, self.input_topic, self._on_key, 10
@@ -84,20 +95,28 @@ class KeyboardTeleopNode(Node):
         )
         self.tcp_client = self.create_client(GetTcpPose, "/get_tcp_pose")
         self.motion_client = self.create_client(MoveCommand, self.motion_service_name)
+        self.jog_client = self.create_client(JogCommand, "/move_jog")
         self.gripper_state_client = self.create_client(GripperState, "/get_gripper_state")
         self.gripper_move_client = self.create_client(GripperCommand, "/gripper_move")
         self.estop_client = self.create_client(Trigger, "/emergency_stop")
         self.get_logger().info(
             "keyboard teleop ready: "
-            f"topic={self.input_topic}, motion_service={self.motion_service_name}, "
+            f"topic={self.input_topic}, mode={self.mode}, "
+            f"motion_service={self.motion_service_name}, "
             f"step={self.translation_step_mm}mm, rot_step={self.rotation_step_deg}deg"
         )
 
+    def destroy_node(self):
+        self._stop_jog(wait=True)
+        super().destroy_node()
+
     def _declare_parameters(self):
         self.declare_parameter("keyboard.input_topic", "/keyboard/input")
+        self.declare_parameter("keyboard.mode", "step")
         self.declare_parameter("keyboard.translation_step_mm", 5.0)
         self.declare_parameter("keyboard.rotation_step_deg", 2.0)
         self.declare_parameter("keyboard.motion_service", "movep")
+        self.declare_parameter("keyboard.jog_coord_type", 0)
         self.declare_parameter("keyboard.user", 0)
         self.declare_parameter("keyboard.tool", 0)
         self.declare_parameter("keyboard.speed", 2)
@@ -117,13 +136,18 @@ class KeyboardTeleopNode(Node):
         self.declare_parameter("keyboard.gripper_force_percent", 50)
 
     def _on_key(self, msg: String):
-        key = normalize_key(msg.data)
+        event, key = parse_key_message(msg.data)
         if key == ESTOP_KEY:
+            self._stop_jog()
             self._emergency_stop()
             return
         if key == RESET_SIM_KEY:
             self.get_logger().warn("reset simulation is not supported on the real Dobot")
             return
+        if self.mode == "jog":
+            self._handle_jog_key(event, key)
+            return
+        key = normalize_key(key)
         if key == TOGGLE_GRIPPER_KEY:
             self._toggle_gripper()
             return
@@ -135,6 +159,8 @@ class KeyboardTeleopNode(Node):
 
     def _on_dobot_state(self, msg: DobotState):
         self.latest_state = msg
+        if self.current_jog_axis is not None and not self._state_allows_motion():
+            self._stop_jog()
 
     def _state_allows_motion(self) -> bool:
         if self.latest_state is None:
@@ -167,6 +193,72 @@ class KeyboardTeleopNode(Node):
                 self.get_logger().error(f"emergency stop rejected: {response.message}")
         except Exception as exc:  # pragma: no cover - ROS callback safety
             self.get_logger().error(f"emergency stop service failed: {exc}")
+
+    def _handle_jog_key(self, event: str, key: str):
+        if key == TOGGLE_GRIPPER_KEY:
+            if event in {"down", "press"}:
+                self._toggle_gripper()
+            return
+        if key == "esc":
+            self._stop_jog()
+            return
+        axis = key_to_jog_axis(key)
+        if axis is None:
+            return
+        if event == "up":
+            if self.current_jog_axis == axis:
+                self._stop_jog()
+            return
+        if event not in {"down", "press"}:
+            return
+        if not self._state_allows_motion():
+            self._stop_jog()
+            return
+        if self.current_jog_axis == axis:
+            return
+        self._stop_jog()
+        self._start_jog(axis)
+
+    def _start_jog(self, axis: str):
+        if not self.jog_client.wait_for_service(timeout_sec=0.1):
+            self.get_logger().error("/move_jog service is not available")
+            return
+        request = JogCommand.Request()
+        request.axis_id = axis
+        request.stop = False
+        request.coord_type = self.jog_coord_type
+        request.user = self.user
+        request.tool = self.tool
+        self.current_jog_axis = axis
+        future = self.jog_client.call_async(request)
+        future.add_done_callback(lambda result: self._on_jog_done(result, axis))
+
+    def _stop_jog(self, wait: bool = False):
+        if self.current_jog_axis is None and not wait:
+            return
+        self.current_jog_axis = None
+        if not self.jog_client.wait_for_service(timeout_sec=0.1):
+            self.get_logger().error("/move_jog service is not available")
+            return
+        request = JogCommand.Request()
+        request.stop = True
+        future = self.jog_client.call_async(request)
+        if wait:
+            rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
+
+    def _on_jog_done(self, future, axis: str):
+        try:
+            response = future.result()
+            if response.success:
+                self.get_logger().info(f"keyboard jog accepted: {axis}")
+            else:
+                self.get_logger().error(f"keyboard jog rejected: {response.message}")
+                if self.current_jog_axis == axis:
+                    self.current_jog_axis = None
+        except Exception as exc:  # pragma: no cover - ROS callback safety
+            self.get_logger().error(f"keyboard jog service failed: {exc}")
+            if self.current_jog_axis == axis:
+                self.current_jog_axis = None
 
     def _try_start_command(self) -> bool:
         if self.busy:

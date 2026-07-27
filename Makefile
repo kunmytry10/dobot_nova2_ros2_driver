@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: build driver bringup rviz control-ui control-ui-only services topics tf frames state errors clear enable disable estop joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move camera camera-topics camera-info handeye-check handeye-capture handeye-solve handeye-validate handeye-diagnose handeye-tf handeye-board-tf keyboard keyboard-input keyboard-teleop joy joy-teleop move-jog jog-stop teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
+.PHONY: build driver bringup rviz control-ui control-ui-only services topics tf frames state errors clear enable disable estop joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move camera camera-topics camera-info handeye-check handeye-capture handeye-solve handeye-validate handeye-diagnose handeye-tf handeye-board-tf keyboard keyboard-jog keyboard-input keyboard-jog-input keyboard-teleop joy joy-teleop move-jog jog-stop teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
 
 WS ?= $(CURDIR)
 ORBBEC_WS ?= $(HOME)/orbbec_305
@@ -41,10 +41,12 @@ HANDEYE_PARENT_FRAME ?= Link6
 HANDEYE_CHILD_FRAME ?= camera_color_optical_frame
 HANDEYE_METHOD ?= TSAI
 KEYBOARD_TOPIC ?= /keyboard/input
+KEYBOARD_DEV ?= /dev/input/event0
 KEYBOARD_STEP_MM ?= 5.0
 KEYBOARD_ROT_STEP_DEG ?= 2.0
 KEYBOARD_MOTION_SERVICE ?= movep
 KEYBOARD_GRIPPER_INIT ?= true
+KEYBOARD_JOG_COORD_TYPE ?= 0
 JOY_TOPIC ?= /joy
 JOY_DEV ?= /dev/input/js0
 JOY_DEADMAN_BUTTON ?= 4
@@ -158,8 +160,14 @@ handeye-board-tf:
 keyboard:
 	$(ROS_ENV) && if [ "$(KEYBOARD_GRIPPER_INIT)" = "true" ]; then timeout 10s ros2 service call /gripper_init std_srvs/srv/Trigger "{}" || true; fi && ros2 launch dobot_keyboard keyboard_teleop.launch.py params_file:=$(PARAMS) input_topic:=$(KEYBOARD_TOPIC) translation_step_mm:=$(KEYBOARD_STEP_MM) rotation_step_deg:=$(KEYBOARD_ROT_STEP_DEG) motion_service:=$(KEYBOARD_MOTION_SERVICE) speed:=$(SPEED) acceleration:=$(ACC) wait:=$(WAIT) timeout_sec:=$(TIMEOUT)
 
+keyboard-jog:
+	$(ROS_ENV) && if [ "$(KEYBOARD_GRIPPER_INIT)" = "true" ]; then timeout 10s ros2 service call /gripper_init std_srvs/srv/Trigger "{}" || true; fi && ros2 launch dobot_keyboard keyboard_jog.launch.py params_file:=$(PARAMS) input_topic:=$(KEYBOARD_TOPIC) device:=$(KEYBOARD_DEV) jog_coord_type:=$(KEYBOARD_JOG_COORD_TYPE) user:=$(U) tool:=$(T)
+
 keyboard-input:
 	$(ROS_ENV) && ros2 run dobot_keyboard dobot_keyboard_input --ros-args -p input_topic:=$(KEYBOARD_TOPIC)
+
+keyboard-jog-input:
+	$(ROS_ENV) && ros2 run dobot_keyboard dobot_keyboard_jog_input --ros-args -p input_topic:=$(KEYBOARD_TOPIC) -p device:=$(KEYBOARD_DEV)
 
 keyboard-teleop:
 	$(ROS_ENV) && ros2 run dobot_keyboard dobot_keyboard_teleop --ros-args --params-file $(PARAMS) -p keyboard.input_topic:=$(KEYBOARD_TOPIC) -p keyboard.translation_step_mm:=$(KEYBOARD_STEP_MM) -p keyboard.rotation_step_deg:=$(KEYBOARD_ROT_STEP_DEG) -p keyboard.motion_service:=$(KEYBOARD_MOTION_SERVICE) -p keyboard.speed:=$(SPEED) -p keyboard.acceleration:=$(ACC) -p keyboard.wait:=$(WAIT) -p keyboard.timeout_sec:=$(TIMEOUT)

@@ -67,6 +67,7 @@ make control-ui # driver + robot_state_publisher + Web 控制台 + 可选手眼 
 | `make handeye-tf` | 发布手眼标定结果 static TF |
 | `make handeye-board-tf` | 实时识别 ChArUco 标定板，发布 `camera_color_optical_frame -> handeye_board` |
 | `make keyboard` | 启动键盘笛卡尔小步控制，按键发布到 `/keyboard/input` 后由 teleop 节点调用移动和夹爪 service |
+| `make keyboard-jog KEYBOARD_DEV:=/dev/input/eventX` | 启动工控机本机键盘连续点动，按下运动、松开 `MoveJog()` 停止 |
 | `make keyboard-input` / `make keyboard-teleop` | 分开启动键盘输入节点和执行节点，便于调试 |
 | `make joy` | 启动手柄连续点动控制，默认同时启动 ROS2 `joy_node` 和 Dobot joy teleop |
 | `make joy-teleop` | 只启动 Dobot joy teleop，连接已有 `/joy` topic |
@@ -115,6 +116,35 @@ make keyboard KEYBOARD_STEP_MM:=2 SPEED:=1 ACC:=1
 | `ESC` | 退出键盘输入节点 |
 
 键盘 teleop 会先检查 `/dobot_state`，机器人未使能、报警、反馈无效或未连接时会拒绝移动。状态允许后读取当前 `/get_tcp_pose`，再叠加小步增量并调用 `/movep`。目标会先经过 `keyboard.workspace_*` 工作空间限制检查，驱动侧 IK/关节限位检查仍然保留为第二层保护。上一条键盘命令未完成时，新按键会被忽略，避免命令队列堆积。`e` 急停不受 busy 状态限制。
+
+如果使用工控机本机键盘做连续点动，用：
+
+```bash
+make keyboard-jog KEYBOARD_DEV:=/dev/input/eventX
+```
+
+`keyboard-jog` 不使用终端字符输入，而是读取 Linux input event，因此能区分按下和松开：
+
+```text
+按下 w -> MoveJog(X+)
+松开 w -> MoveJog()
+```
+
+默认映射和 `make keyboard` 一致，`KEYBOARD_JOG_COORD_TYPE=0` 表示用户坐标系，`1` 表示工具坐标系。节点退出或析构时会主动发送一次 `MoveJog()`，避免点动命令悬挂。
+
+查找工控机键盘设备：
+
+```bash
+ls -l /dev/input/by-id/
+```
+
+优先使用带 `kbd` 的软链接，例如：
+
+```bash
+make keyboard-jog KEYBOARD_DEV:=/dev/input/by-id/usb-xxx-event-kbd
+```
+
+如果没有权限读取 input 设备，需要把当前用户加入 `input` 组后重新登录，或临时用有权限的终端启动。
 
 手柄控制使用官方 `MoveJog` 点动接口，适合“推杆持续动、回中停止”：
 
