@@ -23,6 +23,7 @@ setup(
         "console_scripts": [
             "dobot_keyboard_input = dobot_keyboard.keyboard_input:main",
             "dobot_keyboard_jog_input = dobot_keyboard.keyboard_jog_input:main",
+            "dobot_keyboard_jog_runner = dobot_keyboard.keyboard_jog_runner:main",
             "dobot_keyboard_teleop = dobot_keyboard.keyboard_teleop:main",
         ],
     },

@@ -7,7 +7,22 @@ TOGGLE_GRIPPER_KEY = "space"
 RESET_SIM_KEY = "q"
 ESTOP_KEY = "e"
 QUIT_KEY = "esc"
+STOP_KEY = "stop"
 EV_KEY = 1
+KEY_LEFTCTRL = 29
+KEY_RIGHTCTRL = 97
+KEY_LEFTALT = 56
+KEY_RIGHTALT = 100
+KEY_LEFTMETA = 125
+KEY_RIGHTMETA = 126
+MODIFIER_KEY_CODES = {
+    KEY_LEFTCTRL,
+    KEY_RIGHTCTRL,
+    KEY_LEFTALT,
+    KEY_RIGHTALT,
+    KEY_LEFTMETA,
+    KEY_RIGHTMETA,
+}
 LINUX_KEY_CODES = {
     1: QUIT_KEY,
     16: RESET_SIM_KEY,
@@ -83,11 +98,15 @@ def normalize_key(key: str) -> str:
         return ESTOP_KEY
     if value in {"\x1b", "escape"}:
         return QUIT_KEY
+    if value in {"stop", "jog_stop", "zero"}:
+        return STOP_KEY
     return value
 
 
 def parse_key_message(message: str) -> Tuple[str, str]:
     value = str(message or "").strip().lower()
+    if value in {"stop", "jog_stop", "zero"}:
+        return STOP_KEY, ""
     if ":" in value:
         event, key = value.split(":", 1)
         event = event.strip()
@@ -107,6 +126,30 @@ def input_event_to_key_message(event_type: int, code: int, value: int) -> Option
     if int(value) == 0:
         return f"up:{key}"
     return None
+
+
+class KeyboardInputEventFilter:
+    def __init__(self):
+        self._modifiers_down = set()
+
+    def handle_event(self, event_type: int, code: int, value: int) -> Optional[str]:
+        if int(event_type) != EV_KEY:
+            return None
+
+        code = int(code)
+        value = int(value)
+        if code in MODIFIER_KEY_CODES:
+            if value == 1:
+                self._modifiers_down.add(code)
+            elif value == 0:
+                self._modifiers_down.discard(code)
+            return None
+
+        if self._modifiers_down and value == 1:
+            return STOP_KEY
+        if self._modifiers_down:
+            return None
+        return input_event_to_key_message(event_type, code, value)
 
 
 def robot_state_allows_motion(

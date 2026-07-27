@@ -130,7 +130,7 @@ make keyboard-jog KEYBOARD_DEV:=/dev/input/eventX
 松开 w -> MoveJog()
 ```
 
-默认映射和 `make keyboard` 一致，`KEYBOARD_JOG_COORD_TYPE=0` 表示用户坐标系，`1` 表示工具坐标系。节点退出或析构时会主动发送一次 `MoveJog()`，避免点动命令悬挂。
+默认映射和 `make keyboard` 一致，`KEYBOARD_JOG_COORD_TYPE=0` 表示用户坐标系，`1` 表示工具坐标系。节点退出或析构时会主动发送一次 `MoveJog()`，避免点动命令悬挂。`Ctrl+C` 在 `make keyboard-jog` 中按一次只停止点动，终端会提示再次按 `Ctrl+C` 才退出；`Esc` 仍然用于正常停止输入。
 
 查找工控机键盘设备：
 

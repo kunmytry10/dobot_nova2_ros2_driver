@@ -15,6 +15,7 @@ from dobot_keyboard.keyboard_common import (
     ESTOP_KEY,
     KeyboardSafetyConfig,
     RESET_SIM_KEY,
+    STOP_KEY,
     TOGGLE_GRIPPER_KEY,
     apply_delta,
     decide_gripper_opening,
@@ -137,8 +138,11 @@ class KeyboardTeleopNode(Node):
 
     def _on_key(self, msg: String):
         event, key = parse_key_message(msg.data)
+        if event == STOP_KEY:
+            self._stop_jog(force=True)
+            return
         if key == ESTOP_KEY:
-            self._stop_jog()
+            self._stop_jog(force=True)
             self._emergency_stop()
             return
         if key == RESET_SIM_KEY:
@@ -200,23 +204,23 @@ class KeyboardTeleopNode(Node):
                 self._toggle_gripper()
             return
         if key == "esc":
-            self._stop_jog()
+            self._stop_jog(force=True)
             return
         axis = key_to_jog_axis(key)
         if axis is None:
             return
         if event == "up":
             if self.current_jog_axis == axis:
-                self._stop_jog()
+                self._stop_jog(force=True)
             return
         if event not in {"down", "press"}:
             return
         if not self._state_allows_motion():
-            self._stop_jog()
+            self._stop_jog(force=True)
             return
         if self.current_jog_axis == axis:
             return
-        self._stop_jog()
+        self._stop_jog(force=True)
         self._start_jog(axis)
 
     def _start_jog(self, axis: str):
@@ -233,8 +237,8 @@ class KeyboardTeleopNode(Node):
         future = self.jog_client.call_async(request)
         future.add_done_callback(lambda result: self._on_jog_done(result, axis))
 
-    def _stop_jog(self, wait: bool = False):
-        if self.current_jog_axis is None and not wait:
+    def _stop_jog(self, wait: bool = False, force: bool = False):
+        if self.current_jog_axis is None and not wait and not force:
             return
         self.current_jog_axis = None
         if not self.jog_client.wait_for_service(timeout_sec=0.1):

@@ -16,6 +16,7 @@ def test_keyboard_package_installs_nodes_and_launch_file():
     assert "<exec_depend>std_msgs</exec_depend>" in package_xml
     assert "dobot_keyboard_input = dobot_keyboard.keyboard_input:main" in setup
     assert "dobot_keyboard_jog_input = dobot_keyboard.keyboard_jog_input:main" in setup
+    assert "dobot_keyboard_jog_runner = dobot_keyboard.keyboard_jog_runner:main" in setup
     assert "dobot_keyboard_teleop = dobot_keyboard.keyboard_teleop:main" in setup
     assert 'share/{package_name}/launch' in setup
     assert "dobot_keyboard_input" in launch
@@ -44,7 +45,7 @@ def test_makefile_exposes_keyboard_workflows():
     assert "--packages-up-to dobot_camera dobot_handeye dobot_keyboard dobot_joy dobot_ros2" in source
     assert "ros2 service call /gripper_init std_srvs/srv/Trigger" in source
     assert "ros2 launch dobot_keyboard keyboard_teleop.launch.py" in source
-    assert "ros2 launch dobot_keyboard keyboard_jog.launch.py" in source
+    assert "ros2 run dobot_keyboard dobot_keyboard_jog_runner" in source
     assert "ros2 run dobot_keyboard dobot_keyboard_input" in source
     assert "ros2 run dobot_keyboard dobot_keyboard_jog_input" in source
     assert "ros2 run dobot_keyboard dobot_keyboard_teleop" in source

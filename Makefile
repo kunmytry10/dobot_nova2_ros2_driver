@@ -161,7 +161,7 @@ keyboard:
 	$(ROS_ENV) && if [ "$(KEYBOARD_GRIPPER_INIT)" = "true" ]; then timeout 10s ros2 service call /gripper_init std_srvs/srv/Trigger "{}" || true; fi && ros2 launch dobot_keyboard keyboard_teleop.launch.py params_file:=$(PARAMS) input_topic:=$(KEYBOARD_TOPIC) translation_step_mm:=$(KEYBOARD_STEP_MM) rotation_step_deg:=$(KEYBOARD_ROT_STEP_DEG) motion_service:=$(KEYBOARD_MOTION_SERVICE) speed:=$(SPEED) acceleration:=$(ACC) wait:=$(WAIT) timeout_sec:=$(TIMEOUT)
 
 keyboard-jog:
-	$(ROS_ENV) && if [ "$(KEYBOARD_GRIPPER_INIT)" = "true" ]; then timeout 10s ros2 service call /gripper_init std_srvs/srv/Trigger "{}" || true; fi && ros2 launch dobot_keyboard keyboard_jog.launch.py params_file:=$(PARAMS) input_topic:=$(KEYBOARD_TOPIC) device:=$(KEYBOARD_DEV) jog_coord_type:=$(KEYBOARD_JOG_COORD_TYPE) user:=$(U) tool:=$(T)
+	$(ROS_ENV) && if [ "$(KEYBOARD_GRIPPER_INIT)" = "true" ]; then timeout 10s ros2 service call /gripper_init std_srvs/srv/Trigger "{}" || true; fi && ros2 run dobot_keyboard dobot_keyboard_jog_runner --params-file $(PARAMS) --input-topic $(KEYBOARD_TOPIC) --device $(KEYBOARD_DEV) --jog-coord-type $(KEYBOARD_JOG_COORD_TYPE) --user $(U) --tool $(T)
 
 keyboard-input:
 	$(ROS_ENV) && ros2 run dobot_keyboard dobot_keyboard_input --ros-args -p input_topic:=$(KEYBOARD_TOPIC)

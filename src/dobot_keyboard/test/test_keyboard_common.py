@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dobot_keyboard.keyboard_common import (
     ESTOP_KEY,
     KeyboardSafetyConfig,
+    KeyboardInputEventFilter,
     apply_delta,
     decide_gripper_opening,
     input_event_to_key_message,
@@ -111,3 +112,13 @@ def test_linux_input_key_events_are_converted_to_messages():
     assert input_event_to_key_message(1, 18, 1) == "down:e"
     assert input_event_to_key_message(1, 1, 1) == "down:esc"
     assert input_event_to_key_message(3, 17, 1) is None
+
+
+def test_keyboard_input_filter_ignores_motion_keys_while_ctrl_is_held():
+    event_filter = KeyboardInputEventFilter()
+
+    assert event_filter.handle_event(1, 29, 1) is None
+    assert event_filter.handle_event(1, 46, 1) == "stop"
+    assert event_filter.handle_event(1, 46, 0) is None
+    assert event_filter.handle_event(1, 29, 0) is None
+    assert event_filter.handle_event(1, 46, 1) == "down:c"

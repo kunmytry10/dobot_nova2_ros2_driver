@@ -6,7 +6,7 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from dobot_keyboard.keyboard_common import input_event_to_key_message, parse_key_message
+from dobot_keyboard.keyboard_common import KeyboardInputEventFilter, parse_key_message
 
 
 INPUT_EVENT_FORMAT = "llHHI"
@@ -45,6 +45,7 @@ def _read_input_event(fd: int):
 def main(args=None):
     rclpy.init(args=args)
     node = KeyboardJogInputNode()
+    event_filter = KeyboardInputEventFilter()
     fd = os.open(node.device, os.O_RDONLY | os.O_NONBLOCK)
     try:
         while rclpy.ok():
@@ -55,14 +56,15 @@ def main(args=None):
             event = _read_input_event(fd)
             if event is None:
                 continue
-            message = input_event_to_key_message(*event)
+            message = event_filter.handle_event(*event)
             if message is None:
                 continue
             node.publish_event(message)
             if parse_key_message(message) == ("down", "esc"):
                 break
     finally:
-        node.publish_event("up:esc")
+        node.publish_event("stop")
+        rclpy.spin_once(node, timeout_sec=0.05)
         os.close(fd)
         node.destroy_node()
         rclpy.shutdown()
