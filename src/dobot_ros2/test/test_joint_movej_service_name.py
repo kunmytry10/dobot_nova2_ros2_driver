@@ -37,6 +37,8 @@ def test_move_jog_service_is_registered():
     interfaces_source = (PACKAGE_ROOT.parent / "dobot_interfaces" / "CMakeLists.txt").read_text()
 
     assert 'create_service(JogCommand, "move_jog"' in driver_source
+    assert "create_publisher(" in driver_source
+    assert "String, \"move_jog/diagnostics\", 10" in driver_source
     assert '"srv/JogCommand.srv"' in interfaces_source
     assert "self.controller.move_jog(" in driver_source
 

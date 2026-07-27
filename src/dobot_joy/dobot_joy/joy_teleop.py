@@ -1,3 +1,4 @@
+import json
 import time
 from math import degrees
 
@@ -6,6 +7,7 @@ from dobot_interfaces.msg import DobotState, GripperStatus
 from dobot_interfaces.srv import GripperCommand, GripperState, JogCommand
 from rclpy.node import Node
 from sensor_msgs.msg import JointState, Joy, JoyFeedback, JoyFeedbackArray
+from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
 from dobot_joy.joy_common import (
@@ -63,6 +65,9 @@ class JoyTeleopNode(Node):
         )
         self.enable_rumble = bool(self.get_parameter("joy.enable_rumble").value)
         self.rumble_topic = str(self.get_parameter("joy.rumble_topic").value)
+        self.diagnostics_topic = str(
+            self.get_parameter("joy.diagnostics_topic").value
+        )
         self.rumble_duration_sec = float(
             self.get_parameter("joy.rumble_duration_sec").value
         )
@@ -116,6 +121,7 @@ class JoyTeleopNode(Node):
             GripperStatus, "/gripper_state", self._on_gripper_status, 10
         )
         self.rumble_pub = self.create_publisher(JoyFeedbackArray, self.rumble_topic, 10)
+        self.diagnostics_pub = self.create_publisher(String, self.diagnostics_topic, 10)
         self.create_timer(0.1, self._watchdog)
         self.get_logger().info(
             "joy teleop ready: "
@@ -157,6 +163,7 @@ class JoyTeleopNode(Node):
         self.declare_parameter("joy.gripper_command_period_sec", 0.2)
         self.declare_parameter("joy.enable_rumble", True)
         self.declare_parameter("joy.rumble_topic", "/joy/set_feedback")
+        self.declare_parameter("joy.diagnostics_topic", "/joy/teleop_diagnostics")
         self.declare_parameter("joy.rumble_duration_sec", 0.2)
         self.declare_parameter("joy.rumble_intensity", 0.7)
         self.declare_parameter("joy.joint_limit_check", True)
@@ -192,7 +199,8 @@ class JoyTeleopNode(Node):
         self.latest_object_detected = bool(msg.object_detected)
 
     def _on_joy(self, msg: Joy):
-        self.last_joy_time = time.monotonic()
+        joy_time = time.monotonic()
+        self.last_joy_time = joy_time
         if self.trigger_neutral_axes is None:
             self.trigger_neutral_axes = list(msg.axes)
         if button_pressed(msg.buttons, self.estop_button_index):
@@ -233,7 +241,7 @@ class JoyTeleopNode(Node):
             return
         if self.current_axis is not None:
             self._stop_jog(force=True)
-        self._start_jog(axis)
+        self._start_jog(axis, joy_time)
         self.latest_buttons = list(msg.buttons)
 
     def _state_allows_jog(self, log: bool) -> bool:
@@ -277,7 +285,8 @@ class JoyTeleopNode(Node):
                 return False
         return True
 
-    def _start_jog(self, axis: str):
+    def _start_jog(self, axis: str, joy_time: float = None):
+        start_time = time.monotonic()
         if not self.jog_client.wait_for_service(timeout_sec=0.1):
             self.get_logger().error("/move_jog service is not available")
             return
@@ -288,10 +297,23 @@ class JoyTeleopNode(Node):
         request.user = self.user
         request.tool = self.tool
         self.current_axis = axis
+        call_time = time.monotonic()
+        self._publish_diagnostic(
+            {
+                "event": "start_jog_request",
+                "axis": axis,
+                "joy_to_start_ms": _elapsed_ms(joy_time, start_time),
+                "service_wait_ms": _elapsed_ms(start_time, call_time),
+            }
+        )
         future = self.jog_client.call_async(request)
-        future.add_done_callback(lambda result: self._on_jog_done(result, axis))
+        future.add_done_callback(
+            lambda result: self._on_jog_done(result, axis, call_time)
+        )
 
     def _stop_jog(self, wait: bool = False, force: bool = False):
+        start_time = time.monotonic()
+        previous_axis = self.current_axis
         if self.current_axis is None and not force and not wait:
             return
         if not self.jog_client.wait_for_service(timeout_sec=0.1):
@@ -301,7 +323,19 @@ class JoyTeleopNode(Node):
         request = JogCommand.Request()
         request.stop = True
         self.current_axis = None
+        call_time = time.monotonic()
+        self._publish_diagnostic(
+            {
+                "event": "stop_jog_request",
+                "previous_axis": previous_axis,
+                "service_wait_ms": _elapsed_ms(start_time, call_time),
+                "force": bool(force),
+            }
+        )
         future = self.jog_client.call_async(request)
+        future.add_done_callback(
+            lambda result: self._on_jog_stop_done(result, previous_axis, call_time)
+        )
         if wait:
             rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
 
@@ -494,9 +528,25 @@ class JoyTeleopNode(Node):
             message.array.append(feedback)
         self.rumble_pub.publish(message)
 
-    def _on_jog_done(self, future, axis: str):
+    def _publish_diagnostic(self, payload: dict):
+        message = String()
+        payload = dict(payload)
+        payload["stamp_monotonic_sec"] = time.monotonic()
+        message.data = json.dumps(payload, sort_keys=True)
+        self.diagnostics_pub.publish(message)
+
+    def _on_jog_done(self, future, axis: str, call_time: float):
         try:
             response = future.result()
+            self._publish_diagnostic(
+                {
+                    "event": "start_jog_response",
+                    "axis": axis,
+                    "service_roundtrip_ms": _elapsed_ms(call_time, time.monotonic()),
+                    "success": bool(response.success),
+                    "error_id": int(response.error_id),
+                }
+            )
             if response.success:
                 self.get_logger().info(f"joy jog accepted: {axis}")
             else:
@@ -507,6 +557,21 @@ class JoyTeleopNode(Node):
             self.get_logger().error(f"joy jog service failed: {exc}")
             if self.current_axis == axis:
                 self.current_axis = None
+
+    def _on_jog_stop_done(self, future, previous_axis: str, call_time: float):
+        try:
+            response = future.result()
+            self._publish_diagnostic(
+                {
+                    "event": "stop_jog_response",
+                    "previous_axis": previous_axis,
+                    "service_roundtrip_ms": _elapsed_ms(call_time, time.monotonic()),
+                    "success": bool(response.success),
+                    "error_id": int(response.error_id),
+                }
+            )
+        except Exception as exc:  # pragma: no cover - ROS callback safety
+            self.get_logger().error(f"joy jog stop service failed: {exc}")
 
     def _on_estop_done(self, future):
         try:
@@ -529,6 +594,12 @@ class JoyTeleopNode(Node):
         return button_pressed(buttons, index) and not button_pressed(
             self.latest_buttons, index
         )
+
+
+def _elapsed_ms(start: float, end: float) -> float:
+    if start is None:
+        return -1.0
+    return round((float(end) - float(start)) * 1000.0, 3)
 
 
 def main(args=None):

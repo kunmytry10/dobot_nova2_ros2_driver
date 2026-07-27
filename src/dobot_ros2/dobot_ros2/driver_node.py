@@ -1,4 +1,6 @@
+import json
 import math
+import time
 from typing import Sequence
 
 import rclpy
@@ -16,7 +18,7 @@ from dobot_interfaces.srv import (
 )
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float64MultiArray, String
 from std_srvs.srv import Trigger
 
 from .controller import (
@@ -59,6 +61,9 @@ class DobotMotionServer(Node):
         self.tcp_pub = self.create_publisher(Float64MultiArray, "tcp_pose", 10)
         self.dobot_state_pub = self.create_publisher(DobotState, "dobot_state", 10)
         self.gripper_state_pub = self.create_publisher(GripperStatus, "gripper_state", 10)
+        self.move_jog_diagnostics_pub = self.create_publisher(
+            String, "move_jog/diagnostics", 10
+        )
         self.gripper_state_timer = None
         if self.gripper_state_rate_hz > 0.0:
             self.gripper_state_timer = self.create_timer(
@@ -318,6 +323,7 @@ class DobotMotionServer(Node):
         return response
 
     def _move_jog(self, request: JogCommand.Request, response: JogCommand.Response):
+        start_time = time.monotonic()
         result = self.controller.move_jog(
             str(request.axis_id),
             stop=bool(request.stop),
@@ -329,11 +335,36 @@ class DobotMotionServer(Node):
         response.error_id = int(result.error_id)
         response.message = result.message
         response.raw_reply = result.raw_reply
+        elapsed_ms = round((time.monotonic() - start_time) * 1000.0, 3)
+        self._publish_move_jog_diagnostics(request, response, elapsed_ms)
         if result.success:
-            self.get_logger().info("move_jog accepted")
+            self.get_logger().info(f"move_jog accepted in {elapsed_ms:.1f} ms")
         else:
-            self.get_logger().warning(f"move_jog rejected: {result.message}")
+            self.get_logger().warning(
+                f"move_jog rejected in {elapsed_ms:.1f} ms: {result.message}"
+            )
         return response
+
+    def _publish_move_jog_diagnostics(
+        self,
+        request: JogCommand.Request,
+        response: JogCommand.Response,
+        elapsed_ms: float,
+    ) -> None:
+        message = String()
+        message.data = json.dumps(
+            {
+                "event": "move_jog_service",
+                "axis": str(request.axis_id),
+                "stop": bool(request.stop),
+                "server_ms": float(elapsed_ms),
+                "success": bool(response.success),
+                "error_id": int(response.error_id),
+                "stamp_monotonic_sec": time.monotonic(),
+            },
+            sort_keys=True,
+        )
+        self.move_jog_diagnostics_pub.publish(message)
 
     def _teach_start(self, request: TrajectoryCommand.Request, response):
         result = self.controller.teach_start(str(request.name), bool(request.overwrite))

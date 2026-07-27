@@ -48,6 +48,7 @@ KEYBOARD_MOTION_SERVICE ?= movep
 KEYBOARD_GRIPPER_INIT ?= true
 KEYBOARD_JOG_COORD_TYPE ?= 0
 JOY_TOPIC ?= /joy
+JOY_DIAGNOSTICS_TOPIC ?= /joy/teleop_diagnostics
 JOY_DEV ?= /dev/input/js0
 JOY_DEADMAN_BUTTON ?= 4
 JOY_ESTOP_BUTTON ?= 1
@@ -183,7 +184,7 @@ keyboard-teleop:
 	$(ROS_ENV) && ros2 run dobot_keyboard dobot_keyboard_teleop --ros-args --params-file $(PARAMS) -p keyboard.input_topic:=$(KEYBOARD_TOPIC) -p keyboard.translation_step_mm:=$(KEYBOARD_STEP_MM) -p keyboard.rotation_step_deg:=$(KEYBOARD_ROT_STEP_DEG) -p keyboard.motion_service:=$(KEYBOARD_MOTION_SERVICE) -p keyboard.speed:=$(SPEED) -p keyboard.acceleration:=$(ACC) -p keyboard.wait:=$(WAIT) -p keyboard.timeout_sec:=$(TIMEOUT)
 
 joy:
-	$(ROS_ENV) && if [ "$(JOY_GRIPPER_INIT)" = "true" ]; then timeout 10s ros2 service call /gripper_init std_srvs/srv/Trigger "{}" || true; fi && ros2 launch dobot_joy joy_teleop.launch.py joy_topic:=$(JOY_TOPIC) dev:=$(JOY_DEV) autorepeat_rate:=$(JOY_AUTOREPEAT_RATE) deadman_button_index:=$(JOY_DEADMAN_BUTTON) estop_button_index:=$(JOY_ESTOP_BUTTON) deadzone:=$(JOY_DEADZONE) coord_type:=$(JOY_COORD_TYPE) gripper_step_mm:=$(JOY_GRIPPER_STEP_MM) gripper_force_percent:=$(JOY_GRIPPER_FORCE) enable_rumble:=$(JOY_ENABLE_RUMBLE) joint_limit_margin_deg:=$(JOY_JOINT_LIMIT_MARGIN_DEG) x_axis_sign:=$(JOY_X_AXIS_SIGN) y_axis_sign:=$(JOY_Y_AXIS_SIGN) z_axis_sign:=$(JOY_Z_AXIS_SIGN) rz_axis_sign:=$(JOY_RZ_AXIS_SIGN)
+	$(ROS_ENV) && if [ "$(JOY_GRIPPER_INIT)" = "true" ]; then timeout 10s ros2 service call /gripper_init std_srvs/srv/Trigger "{}" || true; fi && ros2 launch dobot_joy joy_teleop.launch.py joy_topic:=$(JOY_TOPIC) diagnostics_topic:=$(JOY_DIAGNOSTICS_TOPIC) dev:=$(JOY_DEV) autorepeat_rate:=$(JOY_AUTOREPEAT_RATE) deadman_button_index:=$(JOY_DEADMAN_BUTTON) estop_button_index:=$(JOY_ESTOP_BUTTON) deadzone:=$(JOY_DEADZONE) coord_type:=$(JOY_COORD_TYPE) gripper_step_mm:=$(JOY_GRIPPER_STEP_MM) gripper_force_percent:=$(JOY_GRIPPER_FORCE) enable_rumble:=$(JOY_ENABLE_RUMBLE) joint_limit_margin_deg:=$(JOY_JOINT_LIMIT_MARGIN_DEG) x_axis_sign:=$(JOY_X_AXIS_SIGN) y_axis_sign:=$(JOY_Y_AXIS_SIGN) z_axis_sign:=$(JOY_Z_AXIS_SIGN) rz_axis_sign:=$(JOY_RZ_AXIS_SIGN)
 
 joy-teleop:
 	$(ROS_ENV) && ros2 run dobot_joy dobot_joy_teleop --ros-args -p joy.topic:=$(JOY_TOPIC) -p joy.deadman_button_index:=$(JOY_DEADMAN_BUTTON) -p joy.estop_button_index:=$(JOY_ESTOP_BUTTON) -p joy.deadzone:=$(JOY_DEADZONE) -p joy.coord_type:=$(JOY_COORD_TYPE) -p joy.gripper_step_mm:=$(JOY_GRIPPER_STEP_MM) -p joy.gripper_force_percent:=$(JOY_GRIPPER_FORCE) -p joy.enable_rumble:=$(JOY_ENABLE_RUMBLE) -p joy.joint_limit_margin_deg:=$(JOY_JOINT_LIMIT_MARGIN_DEG) -p joy.x_axis_sign:=$(JOY_X_AXIS_SIGN) -p joy.y_axis_sign:=$(JOY_Y_AXIS_SIGN) -p joy.z_axis_sign:=$(JOY_Z_AXIS_SIGN) -p joy.rz_axis_sign:=$(JOY_RZ_AXIS_SIGN)

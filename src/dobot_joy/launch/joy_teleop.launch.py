@@ -13,6 +13,9 @@ def generate_launch_description():
             DeclareLaunchArgument("start_joy_node", default_value="true"),
             DeclareLaunchArgument("dev", default_value="/dev/input/js0"),
             DeclareLaunchArgument("autorepeat_rate", default_value="50.0"),
+            DeclareLaunchArgument(
+                "diagnostics_topic", default_value="/joy/teleop_diagnostics"
+            ),
             DeclareLaunchArgument("deadman_button_index", default_value="4"),
             DeclareLaunchArgument("estop_button_index", default_value="1"),
             DeclareLaunchArgument("toggle_gripper_button_index", default_value="0"),
@@ -92,6 +95,7 @@ def generate_launch_description():
                         "joy.enable_rumble": ParameterValue(
                             LaunchConfiguration("enable_rumble"), value_type=bool
                         ),
+                        "joy.diagnostics_topic": LaunchConfiguration("diagnostics_topic"),
                         "joy.joint_limit_margin_deg": ParameterValue(
                             LaunchConfiguration("joint_limit_margin_deg"),
                             value_type=float,
