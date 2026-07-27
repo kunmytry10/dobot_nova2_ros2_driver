@@ -7,11 +7,11 @@ class JoyMapping:
     x_axis_index: int = 1
     x_axis_sign: float = -1.0
     y_axis_index: int = 0
-    y_axis_sign: float = 1.0
+    y_axis_sign: float = -1.0
     z_axis_index: int = 4
-    z_axis_sign: float = -1.0
+    z_axis_sign: float = 1.0
     rz_axis_index: int = 3
-    rz_axis_sign: float = 1.0
+    rz_axis_sign: float = -1.0
     lt_axis_index: int = 2
     rt_axis_index: int = 5
     deadzone: float = 0.25
@@ -58,6 +58,15 @@ def axis_to_gripper_delta(
     if lt >= rt:
         return -abs(float(mapping.gripper_step_mm))
     return abs(float(mapping.gripper_step_mm))
+
+
+def trigger_pressed(
+    axes: Sequence[float],
+    neutral_axes: Optional[Sequence[float]],
+    index: int,
+    deadzone: float,
+) -> bool:
+    return _trigger_activation(axes, neutral_axes, index) >= float(deadzone)
 
 
 def clamp(value: float, minimum: float, maximum: float) -> float:

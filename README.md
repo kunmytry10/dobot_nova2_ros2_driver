@@ -162,15 +162,16 @@ make joy
 | `JOY_ESTOP_BUTTON` | `1` | 急停按钮，默认 B |
 | `JOY_DEADZONE` | `0.25` | 摇杆死区 |
 | `JOY_COORD_TYPE` | `0` | `MoveJog` 坐标系，`0` 为用户坐标系，`1` 为工具坐标系 |
+| `JOY_AUTOREPEAT_RATE` | `50.0` | `joy_node` 重复发布频率，提高连续点动顺滑度 |
 | `JOY_GRIPPER_INIT` | `true` | 启动手柄控制前先尝试初始化夹爪 |
-| `JOY_GRIPPER_STEP_MM` | `2.0` | LT/RT 每次微调夹爪开口的步长 |
+| `JOY_GRIPPER_STEP_MM` | `2.0` | 保留参数；当前 LT/RT 默认按模拟点动处理 |
 | `JOY_GRIPPER_FORCE` | `50` | 手柄夹爪命令的默认力百分比 |
 | `JOY_ENABLE_RUMBLE` | `true` | 夹爪检测到物体时尝试发送手柄震动反馈 |
 | `JOY_JOINT_LIMIT_MARGIN_DEG` | `5.0` | 任一关节距离软限位小于该角度时停止 jog |
 | `JOY_X_AXIS_SIGN` | `-1.0` | 左摇杆上下到 X 方向的符号，方向反了改成 `1.0` |
-| `JOY_Y_AXIS_SIGN` | `1.0` | 左摇杆左右到 Y 方向的符号，方向反了改成 `-1.0` |
-| `JOY_Z_AXIS_SIGN` | `-1.0` | 右摇杆上下到 Z 方向的符号，方向反了改成 `1.0` |
-| `JOY_RZ_AXIS_SIGN` | `1.0` | 右摇杆左右到 Rz 方向的符号，方向反了改成 `-1.0` |
+| `JOY_Y_AXIS_SIGN` | `-1.0` | 左摇杆左右到 Y 方向的符号，方向反了改成 `1.0` |
+| `JOY_Z_AXIS_SIGN` | `1.0` | 右摇杆上下到 Z 方向的符号，方向反了改成 `-1.0` |
+| `JOY_RZ_AXIS_SIGN` | `-1.0` | 右摇杆左右到 Rz 方向的符号，方向反了改成 `1.0` |
 
 默认映射：
 
@@ -182,7 +183,7 @@ make joy
 | 右摇杆上下 | `Z+` / `Z-`，末端升降 |
 | 右摇杆左右 | `Rz+` / `Rz-`，末端绕 Z 旋转 |
 | A | 夹爪开/关切换 |
-| LT / RT | 夹爪开口减小 / 增大 |
+| LT / RT | 按住夹爪持续关闭 / 打开，松开时发送当前开口作为停止目标 |
 | B | 急停 |
 | X | 清除报警 |
 | Back / Start | 停止当前点动 |

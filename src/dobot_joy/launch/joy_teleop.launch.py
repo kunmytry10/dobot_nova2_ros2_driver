@@ -12,6 +12,7 @@ def generate_launch_description():
             DeclareLaunchArgument("joy_topic", default_value="/joy"),
             DeclareLaunchArgument("start_joy_node", default_value="true"),
             DeclareLaunchArgument("dev", default_value="/dev/input/js0"),
+            DeclareLaunchArgument("autorepeat_rate", default_value="50.0"),
             DeclareLaunchArgument("deadman_button_index", default_value="4"),
             DeclareLaunchArgument("estop_button_index", default_value="1"),
             DeclareLaunchArgument("toggle_gripper_button_index", default_value="0"),
@@ -19,9 +20,9 @@ def generate_launch_description():
             DeclareLaunchArgument("deadzone", default_value="0.25"),
             DeclareLaunchArgument("coord_type", default_value="0"),
             DeclareLaunchArgument("x_axis_sign", default_value="-1.0"),
-            DeclareLaunchArgument("y_axis_sign", default_value="1.0"),
-            DeclareLaunchArgument("z_axis_sign", default_value="-1.0"),
-            DeclareLaunchArgument("rz_axis_sign", default_value="1.0"),
+            DeclareLaunchArgument("y_axis_sign", default_value="-1.0"),
+            DeclareLaunchArgument("z_axis_sign", default_value="1.0"),
+            DeclareLaunchArgument("rz_axis_sign", default_value="-1.0"),
             DeclareLaunchArgument("gripper_step_mm", default_value="2.0"),
             DeclareLaunchArgument("gripper_force_percent", default_value="50"),
             DeclareLaunchArgument("enable_rumble", default_value="true"),
@@ -31,7 +32,15 @@ def generate_launch_description():
                 executable="joy_node",
                 name="joy_node",
                 output="screen",
-                parameters=[{"dev": LaunchConfiguration("dev")}],
+                parameters=[
+                    {
+                        "dev": LaunchConfiguration("dev"),
+                        "autorepeat_rate": ParameterValue(
+                            LaunchConfiguration("autorepeat_rate"),
+                            value_type=float,
+                        ),
+                    }
+                ],
                 condition=IfCondition(LaunchConfiguration("start_joy_node")),
             ),
             Node(

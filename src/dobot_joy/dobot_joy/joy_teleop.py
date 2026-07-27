@@ -10,11 +10,11 @@ from std_srvs.srv import Trigger
 
 from dobot_joy.joy_common import (
     JoyMapping,
-    axis_to_gripper_delta,
     axis_to_jog,
     button_pressed,
     clamp,
     deadman_pressed,
+    trigger_pressed,
 )
 
 
@@ -101,6 +101,7 @@ class JoyTeleopNode(Node):
         self.latest_gripper_opening_mm = None
         self.gripper_busy = False
         self.last_gripper_command_time = 0.0
+        self.active_gripper_axis = None
         self.latest_object_detected = False
         self.rumble_until = 0.0
         self.jog_client = self.create_client(JogCommand, "/move_jog")
@@ -138,11 +139,11 @@ class JoyTeleopNode(Node):
         self.declare_parameter("joy.x_axis_index", 1)
         self.declare_parameter("joy.x_axis_sign", -1.0)
         self.declare_parameter("joy.y_axis_index", 0)
-        self.declare_parameter("joy.y_axis_sign", 1.0)
+        self.declare_parameter("joy.y_axis_sign", -1.0)
         self.declare_parameter("joy.z_axis_index", 4)
-        self.declare_parameter("joy.z_axis_sign", -1.0)
+        self.declare_parameter("joy.z_axis_sign", 1.0)
         self.declare_parameter("joy.rz_axis_index", 3)
-        self.declare_parameter("joy.rz_axis_sign", 1.0)
+        self.declare_parameter("joy.rz_axis_sign", -1.0)
         self.declare_parameter("joy.lt_axis_index", 2)
         self.declare_parameter("joy.rt_axis_index", 5)
         self.declare_parameter("joy.deadzone", 0.25)
@@ -230,7 +231,8 @@ class JoyTeleopNode(Node):
         if axis == self.current_axis:
             self.latest_buttons = list(msg.buttons)
             return
-        self._stop_jog(force=True)
+        if self.current_axis is not None:
+            self._stop_jog(force=True)
         self._start_jog(axis)
         self.latest_buttons = list(msg.buttons)
 
@@ -328,24 +330,45 @@ class JoyTeleopNode(Node):
         future.add_done_callback(self._on_clear_error_done)
 
     def _handle_gripper_axis(self, axes):
+        lt_pressed = trigger_pressed(
+            axes,
+            self.trigger_neutral_axes,
+            self.mapping.lt_axis_index,
+            self.mapping.deadzone,
+        )
+        rt_pressed = trigger_pressed(
+            axes,
+            self.trigger_neutral_axes,
+            self.mapping.rt_axis_index,
+            self.mapping.deadzone,
+        )
+        requested_axis = None
+        if lt_pressed and not rt_pressed:
+            requested_axis = "close"
+        elif rt_pressed and not lt_pressed:
+            requested_axis = "open"
+
+        if requested_axis is None:
+            if self.active_gripper_axis is not None:
+                self._stop_gripper_motion()
+            self.active_gripper_axis = None
+            return
+
+        if requested_axis == self.active_gripper_axis:
+            return
+
         now = time.monotonic()
         if now - self.last_gripper_command_time < self.gripper_command_period_sec:
             return
-        delta = axis_to_gripper_delta(axes, self.mapping, self.trigger_neutral_axes)
-        if delta is None:
-            return
-        opening = self.latest_gripper_opening_mm
-        if opening is None:
-            self._request_gripper_state(delta)
-            return
-        target = clamp(
-            opening + delta,
-            self.gripper_min_opening_mm,
-            self.gripper_max_opening_mm,
+        if self.active_gripper_axis is not None:
+            self._stop_gripper_motion()
+        self.active_gripper_axis = requested_axis
+        target = (
+            self.gripper_min_opening_mm
+            if requested_axis == "close"
+            else self.gripper_max_opening_mm
         )
-        if abs(target - opening) < 0.001:
-            return
-        self._move_gripper(target, "gripper fine adjust")
+        self._move_gripper(target, f"gripper jog {requested_axis}", allow_busy=True)
 
     def _toggle_gripper(self):
         opening = self.latest_gripper_opening_mm
@@ -383,6 +406,14 @@ class JoyTeleopNode(Node):
                 self._toggle_gripper()
                 command_sent = self.gripper_busy
                 return
+            if pending_delta == "stop":
+                self._move_gripper(
+                    response.opening_mm,
+                    "gripper jog stop",
+                    allow_busy=True,
+                )
+                command_sent = self.gripper_busy
+                return
             target = clamp(
                 response.opening_mm + pending_delta,
                 self.gripper_min_opening_mm,
@@ -396,8 +427,18 @@ class JoyTeleopNode(Node):
             if not command_sent:
                 self.gripper_busy = False
 
-    def _move_gripper(self, opening_mm: float, label: str):
-        if self.gripper_busy:
+    def _stop_gripper_motion(self):
+        if self.latest_gripper_opening_mm is not None:
+            self._move_gripper(
+                self.latest_gripper_opening_mm,
+                "gripper jog stop",
+                allow_busy=True,
+            )
+            return
+        self._request_gripper_state("stop")
+
+    def _move_gripper(self, opening_mm: float, label: str, allow_busy: bool = False):
+        if self.gripper_busy and not allow_busy:
             return
         if not self.gripper_move_client.wait_for_service(timeout_sec=0.1):
             self.get_logger().error("/gripper_move service is not available")
