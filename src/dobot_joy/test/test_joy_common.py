@@ -10,6 +10,7 @@ from dobot_joy.joy_common import (  # noqa: E402
     axis_to_jog,
     button_pressed,
     deadman_pressed,
+    gripper_stop_target,
 )
 
 
@@ -28,10 +29,10 @@ def test_axis_to_jog_uses_dominant_axis_and_deadzone():
     assert axis_to_jog([-0.8, 0.2, 0.0, 0.0, 0.0], mapping) == "Y+"
     assert axis_to_jog([0.0, 0.0, 0.0, 0.0, -0.9], mapping) == "Z-"
     assert axis_to_jog([0.0, 0.0, 0.0, -0.9, 0.0], mapping) == "Rz+"
-    assert axis_to_jog([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0], mapping) == "Ry+"
-    assert axis_to_jog([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], mapping) == "Ry-"
-    assert axis_to_jog([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0], mapping) == "Rx+"
-    assert axis_to_jog([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], mapping) == "Rx-"
+    assert axis_to_jog([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0], mapping) == "Rx+"
+    assert axis_to_jog([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0], mapping) == "Rx-"
+    assert axis_to_jog([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0], mapping) == "Ry+"
+    assert axis_to_jog([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], mapping) == "Ry-"
     assert axis_to_jog([0.1, 0.1, 0.0, 0.0, 0.0], mapping) is None
 
 
@@ -57,3 +58,11 @@ def test_button_pressed_handles_missing_or_disabled_indices():
     assert not button_pressed([1, 0], 1)
     assert not button_pressed([1, 0], 3)
     assert not button_pressed([1, 0], -1)
+
+
+def test_gripper_stop_target_leads_in_motion_direction_to_avoid_rebound():
+    assert gripper_stop_target(40.0, "close", 3.0, 0.0, 95.0) == 37.0
+    assert gripper_stop_target(40.0, "open", 3.0, 0.0, 95.0) == 43.0
+    assert gripper_stop_target(1.0, "close", 3.0, 0.0, 95.0) == 0.0
+    assert gripper_stop_target(94.0, "open", 3.0, 0.0, 95.0) == 95.0
+    assert gripper_stop_target(40.0, None, 3.0, 0.0, 95.0) == 40.0

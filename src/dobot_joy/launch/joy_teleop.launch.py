@@ -19,16 +19,23 @@ def generate_launch_description():
             DeclareLaunchArgument("deadman_button_index", default_value="4"),
             DeclareLaunchArgument("estop_button_index", default_value="1"),
             DeclareLaunchArgument("toggle_gripper_button_index", default_value="0"),
+            DeclareLaunchArgument("toggle_enable_button_index", default_value="3"),
+            DeclareLaunchArgument("toggle_drag_button_index", default_value="5"),
             DeclareLaunchArgument("clear_error_button_index", default_value="2"),
             DeclareLaunchArgument("deadzone", default_value="0.25"),
             DeclareLaunchArgument("coord_type", default_value="0"),
+            DeclareLaunchArgument("x_axis_index", default_value="1"),
+            DeclareLaunchArgument("y_axis_index", default_value="0"),
             DeclareLaunchArgument("x_axis_sign", default_value="-1.0"),
             DeclareLaunchArgument("y_axis_sign", default_value="-1.0"),
             DeclareLaunchArgument("z_axis_sign", default_value="1.0"),
             DeclareLaunchArgument("rz_axis_sign", default_value="-1.0"),
+            DeclareLaunchArgument("rx_axis_index", default_value="6"),
             DeclareLaunchArgument("rx_axis_sign", default_value="-1.0"),
+            DeclareLaunchArgument("ry_axis_index", default_value="7"),
             DeclareLaunchArgument("ry_axis_sign", default_value="-1.0"),
             DeclareLaunchArgument("gripper_step_mm", default_value="2.0"),
+            DeclareLaunchArgument("gripper_stop_lead_mm", default_value="3.0"),
             DeclareLaunchArgument("gripper_force_percent", default_value="50"),
             DeclareLaunchArgument("enable_rumble", default_value="true"),
             DeclareLaunchArgument("joint_limit_margin_deg", default_value="5.0"),
@@ -66,12 +73,26 @@ def generate_launch_description():
                             LaunchConfiguration("toggle_gripper_button_index"),
                             value_type=int,
                         ),
+                        "joy.toggle_enable_button_index": ParameterValue(
+                            LaunchConfiguration("toggle_enable_button_index"),
+                            value_type=int,
+                        ),
+                        "joy.toggle_drag_button_index": ParameterValue(
+                            LaunchConfiguration("toggle_drag_button_index"),
+                            value_type=int,
+                        ),
                         "joy.clear_error_button_index": ParameterValue(
                             LaunchConfiguration("clear_error_button_index"),
                             value_type=int,
                         ),
                         "joy.deadzone": ParameterValue(
                             LaunchConfiguration("deadzone"), value_type=float
+                        ),
+                        "joy.x_axis_index": ParameterValue(
+                            LaunchConfiguration("x_axis_index"), value_type=int
+                        ),
+                        "joy.y_axis_index": ParameterValue(
+                            LaunchConfiguration("y_axis_index"), value_type=int
                         ),
                         "joy.x_axis_sign": ParameterValue(
                             LaunchConfiguration("x_axis_sign"), value_type=float
@@ -85,8 +106,14 @@ def generate_launch_description():
                         "joy.rz_axis_sign": ParameterValue(
                             LaunchConfiguration("rz_axis_sign"), value_type=float
                         ),
+                        "joy.rx_axis_index": ParameterValue(
+                            LaunchConfiguration("rx_axis_index"), value_type=int
+                        ),
                         "joy.rx_axis_sign": ParameterValue(
                             LaunchConfiguration("rx_axis_sign"), value_type=float
+                        ),
+                        "joy.ry_axis_index": ParameterValue(
+                            LaunchConfiguration("ry_axis_index"), value_type=int
                         ),
                         "joy.ry_axis_sign": ParameterValue(
                             LaunchConfiguration("ry_axis_sign"), value_type=float
@@ -96,6 +123,10 @@ def generate_launch_description():
                         ),
                         "joy.gripper_step_mm": ParameterValue(
                             LaunchConfiguration("gripper_step_mm"), value_type=float
+                        ),
+                        "joy.gripper_stop_lead_mm": ParameterValue(
+                            LaunchConfiguration("gripper_stop_lead_mm"),
+                            value_type=float,
                         ),
                         "joy.gripper_force_percent": ParameterValue(
                             LaunchConfiguration("gripper_force_percent"), value_type=int

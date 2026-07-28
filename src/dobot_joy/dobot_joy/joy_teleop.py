@@ -16,6 +16,7 @@ from dobot_joy.joy_common import (
     button_pressed,
     clamp,
     deadman_pressed,
+    gripper_stop_target,
     trigger_pressed,
 )
 
@@ -31,6 +32,12 @@ class JoyTeleopNode(Node):
         self.estop_button_index = int(self.get_parameter("joy.estop_button_index").value)
         self.toggle_gripper_button_index = int(
             self.get_parameter("joy.toggle_gripper_button_index").value
+        )
+        self.toggle_enable_button_index = int(
+            self.get_parameter("joy.toggle_enable_button_index").value
+        )
+        self.toggle_drag_button_index = int(
+            self.get_parameter("joy.toggle_drag_button_index").value
         )
         self.clear_error_button_index = int(
             self.get_parameter("joy.clear_error_button_index").value
@@ -62,6 +69,9 @@ class JoyTeleopNode(Node):
         )
         self.gripper_command_period_sec = float(
             self.get_parameter("joy.gripper_command_period_sec").value
+        )
+        self.gripper_stop_lead_mm = float(
+            self.get_parameter("joy.gripper_stop_lead_mm").value
         )
         self.enable_rumble = bool(self.get_parameter("joy.enable_rumble").value)
         self.rumble_topic = str(self.get_parameter("joy.rumble_topic").value)
@@ -113,10 +123,15 @@ class JoyTeleopNode(Node):
         self.last_gripper_command_time = 0.0
         self.active_gripper_axis = None
         self.latest_gripper_gripped = False
+        self.drag_active = False
         self.rumble_until = 0.0
         self.jog_client = self.create_client(JogCommand, "/move_jog")
         self.estop_client = self.create_client(Trigger, "/emergency_stop")
         self.clear_error_client = self.create_client(Trigger, "/clear_error")
+        self.enable_robot_client = self.create_client(Trigger, "/enable_robot")
+        self.disable_robot_client = self.create_client(Trigger, "/disable_robot")
+        self.drag_start_client = self.create_client(Trigger, "/drag_start")
+        self.drag_stop_client = self.create_client(Trigger, "/drag_stop")
         self.gripper_state_client = self.create_client(GripperState, "/get_gripper_state")
         self.gripper_move_client = self.create_client(GripperCommand, "/gripper_move")
         self.create_subscription(Joy, self.joy_topic, self._on_joy, 10)
@@ -145,6 +160,8 @@ class JoyTeleopNode(Node):
         self.declare_parameter("joy.deadman_button_index", 4)
         self.declare_parameter("joy.estop_button_index", 1)
         self.declare_parameter("joy.toggle_gripper_button_index", 0)
+        self.declare_parameter("joy.toggle_enable_button_index", 3)
+        self.declare_parameter("joy.toggle_drag_button_index", 5)
         self.declare_parameter("joy.clear_error_button_index", 2)
         self.declare_parameter("joy.stop_button_indices", [6, 7])
         self.declare_parameter("joy.x_axis_index", 1)
@@ -155,9 +172,9 @@ class JoyTeleopNode(Node):
         self.declare_parameter("joy.z_axis_sign", 1.0)
         self.declare_parameter("joy.rz_axis_index", 3)
         self.declare_parameter("joy.rz_axis_sign", -1.0)
-        self.declare_parameter("joy.rx_axis_index", 7)
+        self.declare_parameter("joy.rx_axis_index", 6)
         self.declare_parameter("joy.rx_axis_sign", -1.0)
-        self.declare_parameter("joy.ry_axis_index", 6)
+        self.declare_parameter("joy.ry_axis_index", 7)
         self.declare_parameter("joy.ry_axis_sign", -1.0)
         self.declare_parameter("joy.lt_axis_index", 2)
         self.declare_parameter("joy.rt_axis_index", 5)
@@ -170,6 +187,7 @@ class JoyTeleopNode(Node):
         self.declare_parameter("joy.gripper_wait", False)
         self.declare_parameter("joy.gripper_timeout_sec", 2.0)
         self.declare_parameter("joy.gripper_command_period_sec", 0.2)
+        self.declare_parameter("joy.gripper_stop_lead_mm", 3.0)
         self.declare_parameter("joy.enable_rumble", True)
         self.declare_parameter("joy.rumble_topic", "/joy/set_feedback")
         self.declare_parameter("joy.diagnostics_topic", "/joy/teleop_diagnostics")
@@ -192,6 +210,7 @@ class JoyTeleopNode(Node):
 
     def _on_dobot_state(self, msg: DobotState):
         self.latest_state = msg
+        self.drag_active = msg.robot_mode == 6
         if not self._state_allows_jog(log=False):
             self._stop_jog()
 
@@ -219,6 +238,14 @@ class JoyTeleopNode(Node):
             return
         if self._button_edge(msg.buttons, self.clear_error_button_index):
             self._clear_error()
+            self.latest_buttons = list(msg.buttons)
+            return
+        if self._button_edge(msg.buttons, self.toggle_enable_button_index):
+            self._toggle_enable()
+            self.latest_buttons = list(msg.buttons)
+            return
+        if self._button_edge(msg.buttons, self.toggle_drag_button_index):
+            self._toggle_drag()
             self.latest_buttons = list(msg.buttons)
             return
         if self._button_edge(msg.buttons, self.toggle_gripper_button_index):
@@ -373,6 +400,59 @@ class JoyTeleopNode(Node):
         future = self.clear_error_client.call_async(Trigger.Request())
         future.add_done_callback(self._on_clear_error_done)
 
+    def _toggle_enable(self):
+        self._stop_jog(force=True)
+        if self.latest_state is None:
+            self.get_logger().warn("enable toggle rejected: no dobot_state received yet")
+            return
+        if self.latest_state.error_status or self.latest_state.robot_mode == 9:
+            self.get_logger().warn("enable toggle rejected: robot is in error state")
+            return
+        if self.latest_state.enable_status == 1:
+            self._call_trigger(
+                self.disable_robot_client,
+                "/disable_robot",
+                "disable robot",
+                self._on_disable_done,
+            )
+            return
+        self._call_trigger(
+            self.enable_robot_client,
+            "/enable_robot",
+            "enable robot",
+            self._on_enable_done,
+        )
+
+    def _toggle_drag(self):
+        self._stop_jog(force=True)
+        if self.latest_state is None:
+            self.get_logger().warn("drag toggle rejected: no dobot_state received yet")
+            return
+        if self.latest_state.error_status or self.latest_state.robot_mode == 9:
+            self.get_logger().warn("drag toggle rejected: robot is in error state")
+            return
+        if self.drag_active or self.latest_state.robot_mode == 6:
+            self._call_trigger(
+                self.drag_stop_client,
+                "/drag_stop",
+                "drag stop",
+                self._on_drag_stop_done,
+            )
+            return
+        self._call_trigger(
+            self.drag_start_client,
+            "/drag_start",
+            "drag start",
+            self._on_drag_start_done,
+        )
+
+    def _call_trigger(self, client, service_name: str, label: str, callback):
+        if not client.wait_for_service(timeout_sec=0.1):
+            self.get_logger().error(f"{service_name} service is not available")
+            return
+        future = client.call_async(Trigger.Request())
+        future.add_done_callback(callback)
+
     def _handle_gripper_axis(self, axes):
         lt_pressed = trigger_pressed(
             axes,
@@ -394,8 +474,9 @@ class JoyTeleopNode(Node):
 
         if requested_axis is None:
             if self.active_gripper_axis is not None:
+                released_axis = self.active_gripper_axis
                 self.active_gripper_axis = None
-                self._stop_gripper_motion()
+                self._stop_gripper_motion(released_axis)
             return
 
         if requested_axis == self.active_gripper_axis:
@@ -405,7 +486,7 @@ class JoyTeleopNode(Node):
         if now - self.last_gripper_command_time < self.gripper_command_period_sec:
             return
         if self.active_gripper_axis is not None:
-            self._stop_gripper_motion()
+            self._stop_gripper_motion(self.active_gripper_axis)
         self.active_gripper_axis = requested_axis
         target = (
             self.gripper_min_opening_mm
@@ -450,9 +531,17 @@ class JoyTeleopNode(Node):
                 self._toggle_gripper()
                 command_sent = self.gripper_busy
                 return
-            if pending_delta == "stop":
-                self._move_gripper(
+            if isinstance(pending_delta, str) and pending_delta.startswith("stop:"):
+                direction = pending_delta.split(":", 1)[1] or None
+                target = gripper_stop_target(
                     response.opening_mm,
+                    direction,
+                    self.gripper_stop_lead_mm,
+                    self.gripper_min_opening_mm,
+                    self.gripper_max_opening_mm,
+                )
+                self._move_gripper(
+                    target,
                     "gripper jog stop",
                     allow_busy=True,
                 )
@@ -471,12 +560,13 @@ class JoyTeleopNode(Node):
             if not command_sent:
                 self.gripper_busy = False
 
-    def _stop_gripper_motion(self):
-        self.gripper_stop_pending = True
+    def _stop_gripper_motion(self, direction: str = None):
+        self.gripper_stop_pending = direction or "hold"
         if self.gripper_busy:
             return
+        pending = self.gripper_stop_pending
         self.gripper_stop_pending = False
-        self._request_gripper_state("stop")
+        self._request_gripper_state(f"stop:{pending}")
 
     def _move_gripper(self, opening_mm: float, label: str, allow_busy: bool = False):
         if self.gripper_busy and not allow_busy:
@@ -510,8 +600,9 @@ class JoyTeleopNode(Node):
         finally:
             self.gripper_busy = False
             if self.gripper_stop_pending and self.active_gripper_axis is None:
+                pending = self.gripper_stop_pending
                 self.gripper_stop_pending = False
-                self._request_gripper_state("stop")
+                self._request_gripper_state(f"stop:{pending}")
 
     def _start_rumble(self):
         if not self.enable_rumble:
@@ -599,6 +690,31 @@ class JoyTeleopNode(Node):
                 self.get_logger().error(f"clear error rejected: {response.message}")
         except Exception as exc:  # pragma: no cover - ROS callback safety
             self.get_logger().error(f"clear error service failed: {exc}")
+
+    def _on_enable_done(self, future):
+        self._log_trigger_response(future, "enable robot")
+
+    def _on_disable_done(self, future):
+        self._log_trigger_response(future, "disable robot")
+
+    def _on_drag_start_done(self, future):
+        if self._log_trigger_response(future, "drag start"):
+            self.drag_active = True
+
+    def _on_drag_stop_done(self, future):
+        if self._log_trigger_response(future, "drag stop"):
+            self.drag_active = False
+
+    def _log_trigger_response(self, future, label: str) -> bool:
+        try:
+            response = future.result()
+            if response.success:
+                self.get_logger().info(f"{label} accepted: {response.message}")
+                return True
+            self.get_logger().error(f"{label} rejected: {response.message}")
+        except Exception as exc:  # pragma: no cover - ROS callback safety
+            self.get_logger().error(f"{label} service failed: {exc}")
+        return False
 
     def _button_edge(self, buttons, index: int) -> bool:
         return button_pressed(buttons, index) and not button_pressed(

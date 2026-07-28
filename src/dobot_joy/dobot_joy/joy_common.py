@@ -12,9 +12,9 @@ class JoyMapping:
     z_axis_sign: float = 1.0
     rz_axis_index: int = 3
     rz_axis_sign: float = -1.0
-    rx_axis_index: int = 7
+    rx_axis_index: int = 6
     rx_axis_sign: float = -1.0
-    ry_axis_index: int = 6
+    ry_axis_index: int = 7
     ry_axis_sign: float = -1.0
     lt_axis_index: int = 2
     rt_axis_index: int = 5
@@ -73,6 +73,20 @@ def trigger_pressed(
     deadzone: float,
 ) -> bool:
     return _trigger_activation(axes, neutral_axes, index) >= float(deadzone)
+
+
+def gripper_stop_target(
+    opening_mm: float,
+    direction: Optional[str],
+    lead_mm: float,
+    minimum_mm: float,
+    maximum_mm: float,
+) -> float:
+    if direction == "close":
+        return clamp(opening_mm - abs(float(lead_mm)), minimum_mm, maximum_mm)
+    if direction == "open":
+        return clamp(opening_mm + abs(float(lead_mm)), minimum_mm, maximum_mm)
+    return clamp(opening_mm, minimum_mm, maximum_mm)
 
 
 def clamp(value: float, minimum: float, maximum: float) -> float:

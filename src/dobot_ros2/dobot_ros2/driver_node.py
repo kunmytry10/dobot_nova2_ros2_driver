@@ -79,6 +79,8 @@ class DobotMotionServer(Node):
         self.create_service(Trigger, "enable_robot", self._enable_robot)
         self.create_service(Trigger, "disable_robot", self._disable_robot)
         self.create_service(Trigger, "emergency_stop", self._emergency_stop)
+        self.create_service(Trigger, "drag_start", self._drag_start)
+        self.create_service(Trigger, "drag_stop", self._drag_stop)
         self.create_service(JogCommand, "move_jog", self._move_jog)
         self.create_service(Trigger, "get_error_id", self._get_error_id)
         self.create_service(GetRobotState, "get_robot_state", self._get_robot_state)
@@ -250,6 +252,14 @@ class DobotMotionServer(Node):
     def _emergency_stop(self, request, response):
         del request
         return self._handle_dashboard("emergency_stop", self.controller.emergency_stop(), response)
+
+    def _drag_start(self, request, response):
+        del request
+        return self._handle_dashboard("drag_start", self.controller.drag_start(), response)
+
+    def _drag_stop(self, request, response):
+        del request
+        return self._handle_dashboard("drag_stop", self.controller.drag_stop(), response)
 
     def _get_error_id(self, request, response):
         del request

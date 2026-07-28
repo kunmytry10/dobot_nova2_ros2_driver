@@ -372,6 +372,12 @@ class DobotController:
     def emergency_stop(self) -> DashboardResult:
         return self._dashboard_command("EmergencyStop()", "emergency_stop")
 
+    def drag_start(self) -> DashboardResult:
+        return self._dashboard_command("StartDrag()", "drag_start")
+
+    def drag_stop(self) -> DashboardResult:
+        return self._dashboard_command("StopDrag()", "drag_stop")
+
     def dashboard_command(self, command: str, label: str) -> DashboardResult:
         return self._dashboard_command(command, label)
 

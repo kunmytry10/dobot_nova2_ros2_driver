@@ -50,6 +50,8 @@ make control-ui # driver + robot_state_publisher + Web 控制台 + 可选手眼 
 | `make clear` | 清除报警 |
 | `make enable` / `make disable` | 上/下使能 |
 | `make estop` | 软件急停，调用 `EmergencyStop()` |
+| `make recover-limit` | 交互式恢复关节限位抱死，释放抱闸前后都需要人工确认 |
+| `make drag-start` / `make drag-stop` | 只开启/关闭拖拽模式，不录制轨迹 |
 | `make control-ui` | 启动完整 Web 控制台，可查看/复制 Joint 和 TCP、下发移动、夹爪和示教命令 |
 | `make control-ui-only` | 只启动 Web 控制台，连接已有 driver |
 | `make gripper-init` | 初始化 AG 夹爪 |
@@ -93,6 +95,20 @@ make control-ui # driver + robot_state_publisher + Web 控制台 + 可选手眼 
 Web 控制台默认地址：`http://localhost:8080`。可用 `CONSOLE_PORT` 覆盖端口。
 
 示教命令变量：`TRAJ` 指定轨迹名，`OVERWRITE=true` 允许覆盖同名轨迹，`REPLAY_MODE` 可覆盖回放模式。
+
+限位抱死恢复使用：
+
+```bash
+make recover-limit
+```
+
+该命令会直接连接 Dashboard `29999`，执行 `GetErrorID()`、`DisableRobot()`、`ClearError()`、`RobotMode()`，并从报警表自动识别限位关节。释放抱闸前终端会要求按 Enter 确认；你手动把关节移出限位后，再按 Enter，程序会执行 `BrakeControl(N,0)` 重新抱闸并打印最终状态。如果自动识别失败，手动指定：
+
+```bash
+make recover-limit JOINT:=6
+```
+
+恢复脚本不会自动重新使能。确认姿态、线缆和人员安全后，再执行 `make enable` 或用手柄 Y 键 enable。
 
 键盘控制默认每次按键只发送一个小步 TCP 目标，默认步长 `KEYBOARD_STEP_MM=5.0`，旋转步长 `KEYBOARD_ROT_STEP_DEG=2.0`，默认运动 service 是 `KEYBOARD_MOTION_SERVICE=movep`。`make keyboard` 会先调用一次 `/gripper_init`，可用 `KEYBOARD_GRIPPER_INIT:=false` 跳过。可按现场情况降低步长和速度：
 
@@ -160,20 +176,27 @@ make joy
 | `JOY_TOPIC` | `/joy` | `sensor_msgs/msg/Joy` topic |
 | `JOY_DEADMAN_BUTTON` | `4` | deadman 按钮，默认 LB，必须按住才允许 jog |
 | `JOY_ESTOP_BUTTON` | `1` | 急停按钮，默认 B |
+| `JOY_TOGGLE_ENABLE_BUTTON` | `3` | enable/disable 切换按钮，默认 Y |
+| `JOY_TOGGLE_DRAG_BUTTON` | `5` | 拖拽模式开关按钮，默认 RB |
 | `JOY_DEADZONE` | `0.25` | 摇杆死区 |
 | `JOY_COORD_TYPE` | `0` | `MoveJog` 坐标系，`0` 为用户坐标系，`1` 为工具坐标系 |
 | `JOY_AUTOREPEAT_RATE` | `50.0` | `joy_node` 重复发布频率，提高连续点动顺滑度 |
 | `JOY_GRIPPER_INIT` | `true` | 启动手柄控制前先尝试初始化夹爪 |
 | `JOY_GRIPPER_STEP_MM` | `2.0` | 保留参数；当前 LT/RT 默认按模拟点动处理 |
+| `JOY_GRIPPER_STOP_LEAD_MM` | `3.0` | LT/RT 松开时的停止补偿距离，用于抵消读反馈到写目标之间的运动延迟 |
 | `JOY_GRIPPER_FORCE` | `50` | 手柄夹爪命令的默认力百分比 |
 | `JOY_ENABLE_RUMBLE` | `true` | 夹爪检测到物体时尝试发送手柄震动反馈 |
 | `JOY_JOINT_LIMIT_MARGIN_DEG` | `5.0` | 任一关节距离软限位小于该角度时停止 jog |
+| `JOY_X_AXIS_INDEX` | `1` | 左摇杆前后轴索引 |
+| `JOY_Y_AXIS_INDEX` | `0` | 左摇杆左右轴索引 |
+| `JOY_RX_AXIS_INDEX` | `6` | DPad 左右轴索引，默认映射到 Rx |
+| `JOY_RY_AXIS_INDEX` | `7` | DPad 上下轴索引，默认映射到 Ry |
 | `JOY_X_AXIS_SIGN` | `-1.0` | 左摇杆上下到 X 方向的符号，方向反了改成 `1.0` |
 | `JOY_Y_AXIS_SIGN` | `-1.0` | 左摇杆左右到 Y 方向的符号，方向反了改成 `1.0` |
 | `JOY_Z_AXIS_SIGN` | `1.0` | 右摇杆上下到 Z 方向的符号，方向反了改成 `-1.0` |
 | `JOY_RZ_AXIS_SIGN` | `-1.0` | 右摇杆左右到 Rz 方向的符号，方向反了改成 `1.0` |
-| `JOY_RX_AXIS_SIGN` | `-1.0` | DPad 上下到 Rx 方向的符号，方向反了改成 `1.0` |
-| `JOY_RY_AXIS_SIGN` | `-1.0` | DPad 左右到 Ry 方向的符号，方向反了改成 `1.0` |
+| `JOY_RX_AXIS_SIGN` | `-1.0` | DPad 左右到 Rx 方向的符号，方向反了改成 `1.0` |
+| `JOY_RY_AXIS_SIGN` | `-1.0` | DPad 上下到 Ry 方向的符号，方向反了改成 `1.0` |
 
 默认映射：
 
@@ -184,16 +207,18 @@ make joy
 | 左摇杆左右 | `Y+` / `Y-`，末端左右 |
 | 右摇杆上下 | `Z+` / `Z-`，末端升降 |
 | 右摇杆左右 | `Rz+` / `Rz-`，末端绕 Z 旋转 |
-| DPad 上下 | `Rx+` / `Rx-`，末端绕 X 旋转 |
-| DPad 左右 | `Ry+` / `Ry-`，末端绕 Y 旋转 |
+| DPad 左右 | `Rx+` / `Rx-`，末端绕 X 旋转 |
+| DPad 上下 | `Ry+` / `Ry-`，末端绕 Y 旋转 |
 | A | 夹爪开/关切换 |
-| LT / RT | 按住夹爪持续关闭 / 打开，松开时读取实时开口并发送保持目标 |
+| LT / RT | 按住夹爪持续关闭 / 打开，松开时主动读取实时开口并发送保持目标 |
 | B | 急停 |
 | X | 清除报警 |
+| Y | enable / disable 切换；报警状态下拒绝 enable |
+| RB | 开启 / 关闭拖拽模式，不录制轨迹 |
 | Back / Start | 停止当前点动 |
 | 松开 deadman 或摇杆回中 | `MoveJog()` 停止点动 |
 
-手柄 teleop 同样订阅 `/dobot_state`、`/joint_states` 和 `/gripper_state`。机器人报警、未使能、反馈无效、topic 超时、节点退出或关节接近软限位时，会主动发送 `MoveJog()` 停止点动。夹爪 `object_detected=true` 或 `grip_state=2` 时会向 `/joy/set_feedback` 尝试发送短震动；如果手柄或驱动不支持 force feedback，控制功能不受影响。若系统没有 `joy_node`，先安装 ROS2 Humble 的 `joy` 包。
+手柄 teleop 同样订阅 `/dobot_state`、`/joint_states` 和 `/gripper_state`。机器人报警、未使能、反馈无效、topic 超时、节点退出或关节接近软限位时，会主动发送 `MoveJog()` 停止点动。Y 和 RB 会先停止当前 jog，再调用 `/enable_robot`、`/disable_robot`、`/drag_start` 或 `/drag_stop`，终端日志会打印 accepted/rejected。夹爪 `object_detected=true` 或 `grip_state=2` 时会向 `/joy/set_feedback` 尝试发送短震动；如果手柄或驱动不支持 force feedback，控制功能不受影响。AG 夹爪 Modbus 手册没有提供运动急停寄存器，LT/RT 松手停止是通过读取 `0x0202` 实时位置后写入新的 `0x0103` 保持目标来模拟；若仍有轻微反弹或拖尾，可调整 `JOY_GRIPPER_STOP_LEAD_MM`。若系统没有 `joy_node`，先安装 ROS2 Humble 的 `joy` 包。
 
 ## 常用 Topic
 

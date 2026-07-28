@@ -32,6 +32,18 @@ def test_emergency_stop_service_is_registered():
     assert "self.controller.emergency_stop()" in driver_source
 
 
+def test_drag_services_are_registered_without_trajectory_recording():
+    driver_source = (PACKAGE_ROOT / "dobot_ros2" / "driver_node.py").read_text()
+    controller_source = (PACKAGE_ROOT / "dobot_ros2" / "controller.py").read_text()
+
+    assert 'create_service(Trigger, "drag_start"' in driver_source
+    assert 'create_service(Trigger, "drag_stop"' in driver_source
+    assert "self.controller.drag_start()" in driver_source
+    assert "self.controller.drag_stop()" in driver_source
+    assert 'return self._dashboard_command("StartDrag()", "drag_start")' in controller_source
+    assert 'return self._dashboard_command("StopDrag()", "drag_stop")' in controller_source
+
+
 def test_move_jog_service_is_registered():
     driver_source = (PACKAGE_ROOT / "dobot_ros2" / "driver_node.py").read_text()
     interfaces_source = (PACKAGE_ROOT.parent / "dobot_interfaces" / "CMakeLists.txt").read_text()

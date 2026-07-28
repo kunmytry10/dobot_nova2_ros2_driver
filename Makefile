@@ -1,10 +1,13 @@
 SHELL := /bin/bash
 
-.PHONY: build driver bringup rviz control-ui control-ui-only services topics tf frames state errors clear enable disable estop joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move camera camera-topics camera-info handeye-check handeye-capture handeye-solve handeye-validate handeye-diagnose handeye-tf handeye-board-tf keyboard keyboard-jog keyboard-input keyboard-jog-input keyboard-teleop joy joy-teleop move-jog jog-stop teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
+.PHONY: build driver bringup rviz control-ui control-ui-only services topics tf frames state errors clear enable disable estop drag-start drag-stop recover-limit joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move camera camera-topics camera-info handeye-check handeye-capture handeye-solve handeye-validate handeye-diagnose handeye-tf handeye-board-tf keyboard keyboard-jog keyboard-input keyboard-jog-input keyboard-teleop joy joy-teleop move-jog jog-stop teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
 
 WS ?= $(CURDIR)
 ORBBEC_WS ?= $(HOME)/orbbec_305
 PARAMS ?= $(WS)/src/dobot_ros2/config/dobot_ros2.yaml
+ROBOT_IP ?= 192.168.5.1
+DASHBOARD_PORT ?= 29999
+JOINT ?= 0
 U ?= 0
 T ?= 0
 SPEED ?= 2
@@ -52,14 +55,21 @@ JOY_DIAGNOSTICS_TOPIC ?= /joy/teleop_diagnostics
 JOY_DEV ?= /dev/input/js0
 JOY_DEADMAN_BUTTON ?= 4
 JOY_ESTOP_BUTTON ?= 1
+JOY_TOGGLE_ENABLE_BUTTON ?= 3
+JOY_TOGGLE_DRAG_BUTTON ?= 5
 JOY_DEADZONE ?= 0.25
 JOY_COORD_TYPE ?= 0
 JOY_AUTOREPEAT_RATE ?= 50.0
 JOY_GRIPPER_INIT ?= true
 JOY_GRIPPER_STEP_MM ?= 2.0
+JOY_GRIPPER_STOP_LEAD_MM ?= 3.0
 JOY_GRIPPER_FORCE ?= 50
 JOY_ENABLE_RUMBLE ?= true
 JOY_JOINT_LIMIT_MARGIN_DEG ?= 5.0
+JOY_X_AXIS_INDEX ?= 1
+JOY_Y_AXIS_INDEX ?= 0
+JOY_RX_AXIS_INDEX ?= 6
+JOY_RY_AXIS_INDEX ?= 7
 JOY_X_AXIS_SIGN ?= -1.0
 JOY_Y_AXIS_SIGN ?= -1.0
 JOY_Z_AXIS_SIGN ?= 1.0
@@ -90,7 +100,7 @@ control-ui-only:
 	$(ROS_ENV) && ros2 launch dobot_ros2 dobot_control_console.launch.py params_file:=$(PARAMS) console_host:=$(CONSOLE_HOST) console_port:=$(CONSOLE_PORT) start_driver:=false start_state_publisher:=false
 
 services:
-	$(ROS_ENV) && ros2 service list | grep -E "get_robot_state|get_joint_state|get_tcp_pose|get_gripper_state|clear_error|enable_robot|disable_robot|emergency_stop|get_error_id|gripper|teach|move"
+	$(ROS_ENV) && ros2 service list | grep -E "get_robot_state|get_joint_state|get_tcp_pose|get_gripper_state|clear_error|enable_robot|disable_robot|emergency_stop|drag_start|drag_stop|get_error_id|gripper|teach|move"
 
 topics:
 	$(ROS_ENV) && ros2 topic list | grep -E "^/joint_states$$|^/tcp_pose$$|^/dobot_state$$|^/gripper_state$$|^/keyboard/input$$|^/joy$$|^/tf$$|^/tf_static$$"
@@ -118,6 +128,15 @@ disable:
 
 estop:
 	$(ROS_ENV) && ros2 service call /emergency_stop std_srvs/srv/Trigger "{}"
+
+drag-start:
+	$(ROS_ENV) && ros2 service call /drag_start std_srvs/srv/Trigger "{}"
+
+drag-stop:
+	$(ROS_ENV) && ros2 service call /drag_stop std_srvs/srv/Trigger "{}"
+
+recover-limit:
+	$(ROS_ENV) && ros2 run dobot_ros2 dobot_recover_limit --robot-ip $(ROBOT_IP) --port $(DASHBOARD_PORT) --joint "$(JOINT)"
 
 joints:
 	$(ROS_ENV) && ros2 service call /get_joint_state dobot_interfaces/srv/GetJointState "{}"
@@ -186,10 +205,10 @@ keyboard-teleop:
 	$(ROS_ENV) && ros2 run dobot_keyboard dobot_keyboard_teleop --ros-args --params-file $(PARAMS) -p keyboard.input_topic:=$(KEYBOARD_TOPIC) -p keyboard.translation_step_mm:=$(KEYBOARD_STEP_MM) -p keyboard.rotation_step_deg:=$(KEYBOARD_ROT_STEP_DEG) -p keyboard.motion_service:=$(KEYBOARD_MOTION_SERVICE) -p keyboard.speed:=$(SPEED) -p keyboard.acceleration:=$(ACC) -p keyboard.wait:=$(WAIT) -p keyboard.timeout_sec:=$(TIMEOUT)
 
 joy:
-	$(ROS_ENV) && if [ "$(JOY_GRIPPER_INIT)" = "true" ]; then timeout 10s ros2 service call /gripper_init std_srvs/srv/Trigger "{}" || true; fi && ros2 launch dobot_joy joy_teleop.launch.py joy_topic:=$(JOY_TOPIC) diagnostics_topic:=$(JOY_DIAGNOSTICS_TOPIC) dev:=$(JOY_DEV) autorepeat_rate:=$(JOY_AUTOREPEAT_RATE) deadman_button_index:=$(JOY_DEADMAN_BUTTON) estop_button_index:=$(JOY_ESTOP_BUTTON) deadzone:=$(JOY_DEADZONE) coord_type:=$(JOY_COORD_TYPE) gripper_step_mm:=$(JOY_GRIPPER_STEP_MM) gripper_force_percent:=$(JOY_GRIPPER_FORCE) enable_rumble:=$(JOY_ENABLE_RUMBLE) joint_limit_margin_deg:=$(JOY_JOINT_LIMIT_MARGIN_DEG) x_axis_sign:=$(JOY_X_AXIS_SIGN) y_axis_sign:=$(JOY_Y_AXIS_SIGN) z_axis_sign:=$(JOY_Z_AXIS_SIGN) rz_axis_sign:=$(JOY_RZ_AXIS_SIGN) rx_axis_sign:=$(JOY_RX_AXIS_SIGN) ry_axis_sign:=$(JOY_RY_AXIS_SIGN)
+	$(ROS_ENV) && if [ "$(JOY_GRIPPER_INIT)" = "true" ]; then timeout 10s ros2 service call /gripper_init std_srvs/srv/Trigger "{}" || true; fi && ros2 launch dobot_joy joy_teleop.launch.py joy_topic:=$(JOY_TOPIC) diagnostics_topic:=$(JOY_DIAGNOSTICS_TOPIC) dev:=$(JOY_DEV) autorepeat_rate:=$(JOY_AUTOREPEAT_RATE) deadman_button_index:=$(JOY_DEADMAN_BUTTON) estop_button_index:=$(JOY_ESTOP_BUTTON) toggle_enable_button_index:=$(JOY_TOGGLE_ENABLE_BUTTON) toggle_drag_button_index:=$(JOY_TOGGLE_DRAG_BUTTON) deadzone:=$(JOY_DEADZONE) coord_type:=$(JOY_COORD_TYPE) gripper_step_mm:=$(JOY_GRIPPER_STEP_MM) gripper_stop_lead_mm:=$(JOY_GRIPPER_STOP_LEAD_MM) gripper_force_percent:=$(JOY_GRIPPER_FORCE) enable_rumble:=$(JOY_ENABLE_RUMBLE) joint_limit_margin_deg:=$(JOY_JOINT_LIMIT_MARGIN_DEG) x_axis_index:=$(JOY_X_AXIS_INDEX) y_axis_index:=$(JOY_Y_AXIS_INDEX) rx_axis_index:=$(JOY_RX_AXIS_INDEX) ry_axis_index:=$(JOY_RY_AXIS_INDEX) x_axis_sign:=$(JOY_X_AXIS_SIGN) y_axis_sign:=$(JOY_Y_AXIS_SIGN) z_axis_sign:=$(JOY_Z_AXIS_SIGN) rz_axis_sign:=$(JOY_RZ_AXIS_SIGN) rx_axis_sign:=$(JOY_RX_AXIS_SIGN) ry_axis_sign:=$(JOY_RY_AXIS_SIGN)
 
 joy-teleop:
-	$(ROS_ENV) && ros2 run dobot_joy dobot_joy_teleop --ros-args -p joy.topic:=$(JOY_TOPIC) -p joy.deadman_button_index:=$(JOY_DEADMAN_BUTTON) -p joy.estop_button_index:=$(JOY_ESTOP_BUTTON) -p joy.deadzone:=$(JOY_DEADZONE) -p joy.coord_type:=$(JOY_COORD_TYPE) -p joy.gripper_step_mm:=$(JOY_GRIPPER_STEP_MM) -p joy.gripper_force_percent:=$(JOY_GRIPPER_FORCE) -p joy.enable_rumble:=$(JOY_ENABLE_RUMBLE) -p joy.joint_limit_margin_deg:=$(JOY_JOINT_LIMIT_MARGIN_DEG) -p joy.x_axis_sign:=$(JOY_X_AXIS_SIGN) -p joy.y_axis_sign:=$(JOY_Y_AXIS_SIGN) -p joy.z_axis_sign:=$(JOY_Z_AXIS_SIGN) -p joy.rz_axis_sign:=$(JOY_RZ_AXIS_SIGN) -p joy.rx_axis_sign:=$(JOY_RX_AXIS_SIGN) -p joy.ry_axis_sign:=$(JOY_RY_AXIS_SIGN)
+	$(ROS_ENV) && ros2 run dobot_joy dobot_joy_teleop --ros-args -p joy.topic:=$(JOY_TOPIC) -p joy.deadman_button_index:=$(JOY_DEADMAN_BUTTON) -p joy.estop_button_index:=$(JOY_ESTOP_BUTTON) -p joy.toggle_enable_button_index:=$(JOY_TOGGLE_ENABLE_BUTTON) -p joy.toggle_drag_button_index:=$(JOY_TOGGLE_DRAG_BUTTON) -p joy.deadzone:=$(JOY_DEADZONE) -p joy.coord_type:=$(JOY_COORD_TYPE) -p joy.gripper_step_mm:=$(JOY_GRIPPER_STEP_MM) -p joy.gripper_stop_lead_mm:=$(JOY_GRIPPER_STOP_LEAD_MM) -p joy.gripper_force_percent:=$(JOY_GRIPPER_FORCE) -p joy.enable_rumble:=$(JOY_ENABLE_RUMBLE) -p joy.joint_limit_margin_deg:=$(JOY_JOINT_LIMIT_MARGIN_DEG) -p joy.x_axis_index:=$(JOY_X_AXIS_INDEX) -p joy.y_axis_index:=$(JOY_Y_AXIS_INDEX) -p joy.rx_axis_index:=$(JOY_RX_AXIS_INDEX) -p joy.ry_axis_index:=$(JOY_RY_AXIS_INDEX) -p joy.x_axis_sign:=$(JOY_X_AXIS_SIGN) -p joy.y_axis_sign:=$(JOY_Y_AXIS_SIGN) -p joy.z_axis_sign:=$(JOY_Z_AXIS_SIGN) -p joy.rz_axis_sign:=$(JOY_RZ_AXIS_SIGN) -p joy.rx_axis_sign:=$(JOY_RX_AXIS_SIGN) -p joy.ry_axis_sign:=$(JOY_RY_AXIS_SIGN)
 
 move-jog:
 	$(ROS_ENV) && ros2 service call /move_jog dobot_interfaces/srv/JogCommand "{axis_id: '$(AXIS)', stop: false, coord_type: $(JOY_COORD_TYPE), user: $(U), tool: $(T)}"
