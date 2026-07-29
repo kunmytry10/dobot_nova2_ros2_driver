@@ -29,6 +29,7 @@ setup(
             "dobot_motion_server = dobot_ros2.driver_node:main",
             "dobot_control_console = dobot_ros2.control_console:main",
             "dobot_recover_limit = dobot_ros2.recover_limit:main",
+            "dobot_system_monitor = dobot_ros2.system_monitor:main",
         ],
     },
 )

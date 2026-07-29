@@ -2,8 +2,9 @@ from pathlib import Path
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-PROJECT_ROOT = PACKAGE_ROOT.parents[2]
+PROJECT_ROOT = PACKAGE_ROOT.parents[1]
 WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
+WORKSPACE_ROOT = PROJECT_ROOT
 HANDEYE_PACKAGE_ROOT = WORKSPACE_ROOT / "src" / "dobot_handeye"
 CAMERA_PACKAGE_ROOT = WORKSPACE_ROOT / "src" / "dobot_camera"
 
@@ -19,9 +20,24 @@ def test_bringup_launch_is_runtime_entrypoint_with_optional_rviz():
     assert "handeye_tf" in source
     assert "handeye_result_file" in source
     assert "handeye_output_child_frame" in source
-    assert "DeclareLaunchArgument(\"rviz\", default_value=\"false\")" in source
+    assert 'DeclareLaunchArgument("rviz", default_value="false")' in source
     assert "IfCondition(rviz)" in source
     assert "nova2_robot.urdf" in source
+
+
+def test_system_launch_composes_runtime_with_selectable_robot_mode():
+    system_launch = PACKAGE_ROOT / "launch" / "dobot_system.launch.py"
+    source = system_launch.read_text()
+    setup = (PACKAGE_ROOT / "setup.py").read_text()
+
+    assert 'DeclareLaunchArgument("robot_mode", default_value="bringup")' in source
+    assert 'mode not in {"bringup", "driver"}' in source
+    assert 'if mode == "external"' in source
+    assert 'FindPackageShare("dobot_camera")' in source
+    assert 'FindPackageShare("dobot_joy")' in source
+    assert 'DeclareLaunchArgument("start_view", default_value="false")' in source
+    assert 'executable="dobot_system_monitor"' in source
+    assert "dobot_system_monitor = dobot_ros2.system_monitor:main" in setup
 
 
 def test_visualization_launch_delegates_to_bringup_with_rviz_enabled():
@@ -43,6 +59,8 @@ def test_project_makefile_wraps_common_ros_workflows():
         "rviz:",
         "control-ui:",
         "control-ui-only:",
+        "system:",
+        "logs-latest:",
         "services:",
         "topics:",
         "tf:",
@@ -60,8 +78,12 @@ def test_project_makefile_wraps_common_ros_workflows():
         "gripper-close:",
         "gripper-move:",
         "camera:",
+        "camera-wrist:",
+        "camera-global:",
+        "camera-view:",
         "camera-topics:",
         "camera-info:",
+        "camera-check:",
         "handeye-check:",
         "handeye-capture:",
         "handeye-solve:",
@@ -98,14 +120,25 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "TRAJ ?=" in source
     assert "REPLAY_MODE ?=" in source
     assert "CONSOLE_PORT ?= 8080" in source
+    assert "ROBOT_MODE ?= bringup" in source
+    assert "SYSTEM_VIEW ?= false" in source
+    assert "dobot_system.launch.py" in source
+    assert "ROS_LOG_DIR" in source
+    assert "RCUTILS_COLORIZED_OUTPUT=1" in source
     assert "GRIPPER_FORCE ?= 50" in source
     assert "GRIPPER_FORCE_N ?= -1.0" in source
     assert "CAMERA_LAUNCH ?= gemini_330_series.launch.py" in source
     assert "CAMERA_NAME ?= camera" in source
     assert "CAMERA_SERIAL ?=" in source
     assert "CAMERA_USB_PORT ?=" in source
-    assert "CAMERA_SERIAL_ARG = $(if $(strip $(CAMERA_SERIAL)),serial_number:=$(CAMERA_SERIAL),)" in source
-    assert "CAMERA_USB_PORT_ARG = $(if $(strip $(CAMERA_USB_PORT)),usb_port:=$(CAMERA_USB_PORT),)" in source
+    assert (
+        "CAMERA_SERIAL_ARG = $(if $(strip $(CAMERA_SERIAL)),serial_number:=$(CAMERA_SERIAL),)"
+        in source
+    )
+    assert (
+        "CAMERA_USB_PORT_ARG = $(if $(strip $(CAMERA_USB_PORT)),usb_port:=$(CAMERA_USB_PORT),)"
+        in source
+    )
     assert "HANDEYE_DATASET_ROOT ?= handeye_datasets" in source
     assert "HANDEYE_RESULT_FILE ?=" in source
     assert "HANDEYE_DIAGNOSE_FILE ?=" in source
@@ -122,8 +155,14 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "JOY_TOPIC ?= /joy" in source
     assert "JOY_DEADMAN_BUTTON ?= 4" in source
     assert "dobot_control_console.launch.py" in source
-    assert "--packages-up-to dobot_camera dobot_handeye dobot_keyboard dobot_joy dobot_ros2" in source
+    assert (
+        "--packages-up-to dobot_camera dobot_handeye dobot_keyboard dobot_joy dobot_ros2"
+        in source
+    )
+    assert "ros2 launch dobot_camera dual_camera.launch.py" in source
     assert "ros2 launch dobot_camera gemini305.launch.py" in source
+    assert "ros2 launch dobot_camera realsense_global.launch.py" in source
+    assert "ros2 launch dobot_camera camera_view.launch.py" in source
     assert "serial_number:=$(CAMERA_SERIAL) usb_port:=$(CAMERA_USB_PORT)" not in source
     assert "orbbec_camera $(CAMERA_LAUNCH)" not in source
     assert "ros2 run dobot_handeye dobot_handeye_check" in source
@@ -160,6 +199,17 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "ros2 service call /movep dobot_interfaces/srv/MoveCommand" in source
     assert "^/dobot_state$$" in source
     assert "^/gripper_state$$" in source
+
+
+def test_system_monitor_writes_logs_by_ros_node_name():
+    source = (
+        PACKAGE_ROOT / "dobot_ros2" / "system_monitor.py"
+    ).read_text()
+
+    assert 'self.log_dir / "nodes"' in source
+    assert 'self.log_dir / "nodes.jsonl"' in source
+    assert 'create_subscription(Log, "/rosout"' in source
+    assert '"node": name' in source
 
 
 def test_description_and_rviz_use_map_as_root_frame():
@@ -245,9 +295,16 @@ def test_camera_wrapper_package_launches_official_orbbec_driver():
     package_xml = (CAMERA_PACKAGE_ROOT / "package.xml").read_text()
     setup = (CAMERA_PACKAGE_ROOT / "setup.py").read_text()
     launch = (CAMERA_PACKAGE_ROOT / "launch" / "gemini305.launch.py").read_text()
+    global_launch = (
+        CAMERA_PACKAGE_ROOT / "launch" / "realsense_global.launch.py"
+    ).read_text()
+    dual_launch = (CAMERA_PACKAGE_ROOT / "launch" / "dual_camera.launch.py").read_text()
+    view_launch = (CAMERA_PACKAGE_ROOT / "launch" / "camera_view.launch.py").read_text()
 
     assert "<name>dobot_camera</name>" in package_xml
     assert "<exec_depend>orbbec_camera</exec_depend>" in package_xml
+    assert "<exec_depend>realsense2_camera</exec_depend>" in package_xml
+    assert "<exec_depend>rqt_image_view</exec_depend>" in package_xml
     assert "share/{package_name}/launch" in setup
     assert "PythonLaunchDescriptionSource" in launch
     assert "FindPackageShare(\"orbbec_camera\")" in launch
@@ -255,6 +312,10 @@ def test_camera_wrapper_package_launches_official_orbbec_driver():
     assert "camera_name" in launch
     assert "serial_number" in launch
     assert "usb_port" in launch
+    assert 'FindPackageShare("realsense2_camera")' in global_launch
+    assert "gemini305.launch.py" in dual_launch
+    assert "realsense_global.launch.py" in dual_launch
+    assert "rqt_image_view" in view_launch
 
 
 def test_control_console_serializes_ros_numpy_arrays():

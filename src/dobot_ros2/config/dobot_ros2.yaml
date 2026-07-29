@@ -41,6 +41,7 @@
     tcp_position_tolerance_mm: 1.0
     tcp_rotation_tolerance_deg: 1.0
     command_timeout_sec: 3.0
+    limit_recovery_timeout_sec: 12.0
     motion_timeout_sec: 30.0
 
     ik_check: true

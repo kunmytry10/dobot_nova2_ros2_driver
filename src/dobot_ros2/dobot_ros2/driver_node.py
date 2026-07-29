@@ -12,6 +12,7 @@ from dobot_interfaces.srv import (
     GripperCommand,
     GripperState,
     JogCommand,
+    LimitRecovery,
     MoveCommand,
     TrajectoryCommand,
     TrajectoryList,
@@ -30,6 +31,7 @@ from .controller import (
     TeachResult,
 )
 from .gripper import DhAgGripper, DobotModbusAgGripper, GripperConfig, GripperResult
+from .recover_limit import LimitRecoveryManager
 
 
 class DobotMotionServer(Node):
@@ -46,11 +48,16 @@ class DobotMotionServer(Node):
         )
         self.feedback_rate_hz = float(self.declare_parameter("feedback_rate_hz", 20.0).value)
         self._last_feedback_publish = 0.0
-
         self.controller = DobotController(
             config,
             feedback_callback=self._publish_feedback,
             log_callback=lambda message: self.get_logger().warning(message),
+        )
+        self.limit_recovery = LimitRecoveryManager(
+            self.controller,
+            release_timeout_sec=float(
+                self.declare_parameter("limit_recovery_timeout_sec", 12.0).value
+            ),
         )
         self.gripper = self._create_gripper(self._load_gripper_config())
         self.gripper_state_rate_hz = float(
@@ -82,6 +89,7 @@ class DobotMotionServer(Node):
         self.create_service(Trigger, "drag_start", self._drag_start)
         self.create_service(Trigger, "drag_stop", self._drag_stop)
         self.create_service(JogCommand, "move_jog", self._move_jog)
+        self.create_service(LimitRecovery, "limit_recovery", self._limit_recovery)
         self.create_service(Trigger, "get_error_id", self._get_error_id)
         self.create_service(GetRobotState, "get_robot_state", self._get_robot_state)
         self.create_service(GetJointState, "get_joint_state", self._get_joint_state)
@@ -95,6 +103,7 @@ class DobotMotionServer(Node):
         self.create_service(Trigger, "gripper_init", self._gripper_init)
         self.create_service(GripperCommand, "gripper_move", self._gripper_move)
         self.create_service(GripperState, "get_gripper_state", self._get_gripper_state)
+        self.create_timer(0.1, self._limit_recovery_watchdog)
 
         if bool(self.declare_parameter("connect_on_start", True).value):
             try:
@@ -104,6 +113,8 @@ class DobotMotionServer(Node):
                 self.get_logger().error(f"Initial Dobot connection failed: {exc}")
 
     def destroy_node(self):
+        if self.limit_recovery.brake_released:
+            self.limit_recovery.lock()
         self.gripper.disconnect()
         self.controller.disconnect()
         super().destroy_node()
@@ -243,6 +254,10 @@ class DobotMotionServer(Node):
 
     def _enable_robot(self, request, response):
         del request
+        if self.limit_recovery.active:
+            response.success = False
+            response.message = "enable rejected: limit recovery is active"
+            return response
         return self._handle_dashboard("enable_robot", self.controller.enable_robot(), response)
 
     def _disable_robot(self, request, response):
@@ -255,6 +270,10 @@ class DobotMotionServer(Node):
 
     def _drag_start(self, request, response):
         del request
+        if self.limit_recovery.active:
+            response.success = False
+            response.message = "drag start rejected: limit recovery is active"
+            return response
         return self._handle_dashboard("drag_start", self.controller.drag_start(), response)
 
     def _drag_stop(self, request, response):
@@ -334,6 +353,12 @@ class DobotMotionServer(Node):
 
     def _move_jog(self, request: JogCommand.Request, response: JogCommand.Response):
         start_time = time.monotonic()
+        if self.limit_recovery.active and not bool(request.stop):
+            response.success = False
+            response.error_id = -1
+            response.message = "move_jog rejected: limit recovery is active"
+            response.raw_reply = ""
+            return response
         result = self.controller.move_jog(
             str(request.axis_id),
             stop=bool(request.stop),
@@ -354,6 +379,41 @@ class DobotMotionServer(Node):
                 f"move_jog rejected in {elapsed_ms:.1f} ms: {result.message}"
             )
         return response
+
+    def _limit_recovery(
+        self, request: LimitRecovery.Request, response: LimitRecovery.Response
+    ):
+        action = str(request.action).strip().lower()
+        if action == "prepare":
+            result = self.limit_recovery.prepare()
+        elif action == "release":
+            result = self.limit_recovery.release()
+        elif action == "lock":
+            result = self.limit_recovery.lock()
+        elif action == "status":
+            result = DashboardResult(
+                True,
+                0,
+                "limit recovery status",
+            )
+        else:
+            result = DashboardResult(
+                False, message=f"unsupported limit recovery action: {action}"
+            )
+        response.success = bool(result.success)
+        response.error_id = int(result.error_id)
+        response.message = str(result.message)
+        response.joint = int(self.limit_recovery.joint)
+        response.brake_released = bool(self.limit_recovery.brake_released)
+        response.raw_reply = str(result.raw_reply)
+        return response
+
+    def _limit_recovery_watchdog(self):
+        result = self.limit_recovery.watchdog()
+        if result is not None:
+            self.get_logger().error(
+                "limit recovery watchdog timeout; " + result.message
+            )
 
     def _publish_move_jog_diagnostics(
         self,
@@ -377,6 +437,8 @@ class DobotMotionServer(Node):
         self.move_jog_diagnostics_pub.publish(message)
 
     def _teach_start(self, request: TrajectoryCommand.Request, response):
+        if self.limit_recovery.active:
+            return self._reject_teach_for_limit_recovery("teach_start", response)
         result = self.controller.teach_start(str(request.name), bool(request.overwrite))
         return self._handle_teach("teach_start", result, response)
 
@@ -385,6 +447,8 @@ class DobotMotionServer(Node):
         return self._handle_teach("teach_stop", result, response)
 
     def _teach_replay(self, request: TrajectoryCommand.Request, response):
+        if self.limit_recovery.active:
+            return self._reject_teach_for_limit_recovery("teach_replay", response)
         wait = bool(request.wait) if bool(request.override_wait) else None
         result = self.controller.teach_replay(
             str(request.name),
@@ -465,6 +529,11 @@ class DobotMotionServer(Node):
     def _handle_move(self, kind: str, request: MoveCommand.Request, response: MoveCommand.Response):
         """Handle one service call while keeping Dobot units in the API."""
 
+        if self.limit_recovery.active:
+            response.success = False
+            response.error_id = -1
+            response.message = f"{kind} rejected: limit recovery is active"
+            return response
         result = self.controller.move(
             kind,
             list(request.target),
@@ -540,6 +609,12 @@ class DobotMotionServer(Node):
             self.get_logger().info(f"{name} accepted")
         else:
             self.get_logger().warning(f"{name} rejected: {response.message}")
+        return response
+
+    def _reject_teach_for_limit_recovery(self, name: str, response):
+        response.success = False
+        response.error_id = -1
+        response.message = f"{name} rejected: limit recovery is active"
         return response
 
     def _teach_message(self, result: TeachResult) -> str:

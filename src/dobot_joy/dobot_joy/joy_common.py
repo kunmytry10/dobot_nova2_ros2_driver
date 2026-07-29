@@ -52,6 +52,17 @@ def axis_to_jog(axes: Sequence[float], mapping: JoyMapping) -> Optional[str]:
     return f"{axis_id}{'+' if value > 0.0 else '-'}"
 
 
+def jog_axis_to_action(axis_id: Optional[str]):
+    vector = [0.0] * 6
+    if not axis_id:
+        return vector
+    for index, name in enumerate(("X", "Y", "Z", "Rx", "Ry", "Rz")):
+        if str(axis_id) in {f"{name}+", f"{name}-"}:
+            vector[index] = -1.0 if str(axis_id).endswith("-") else 1.0
+            break
+    return vector
+
+
 def axis_to_gripper_delta(
     axes: Sequence[float],
     mapping: JoyMapping,

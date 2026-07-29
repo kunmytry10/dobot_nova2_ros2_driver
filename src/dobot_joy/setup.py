@@ -22,6 +22,8 @@ setup(
     entry_points={
         "console_scripts": [
             "dobot_joy_teleop = dobot_joy.joy_teleop:main",
+            "dobot_data_collection = dobot_joy.data_collection:main",
+            "dobot_data_validate = dobot_joy.data_validate:main",
         ],
     },
 )

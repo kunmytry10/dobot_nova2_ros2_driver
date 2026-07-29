@@ -9,6 +9,8 @@ trajectories/
 handeye_datasets/
 handeye_samples/
 handeye_result.yaml
+data_collection/
+logs/
 
 # TF frame graph outputs
 frames_*.gv
@@ -17,6 +19,10 @@ frames_*.pdf
 # Editor/project-local files
 .vscode/
 .ace-tool/
+.venv-lerobot/
+
+# Local operator handoff
+/手柄操控使用说明.md
 
 # Python caches
 __pycache__/

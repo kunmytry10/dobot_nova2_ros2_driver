@@ -1,0 +1,11 @@
+builtin_interfaces/Time stamp
+string axis_id
+float64[6] cartesian_jog
+bool motion_active
+bool deadman
+int32 coord_type
+int32 user
+int32 tool
+string gripper_action
+float64 gripper_target_mm
+float64 gripper_target_normalized

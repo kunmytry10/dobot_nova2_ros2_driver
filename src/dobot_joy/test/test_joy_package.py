@@ -14,7 +14,10 @@ def test_joy_package_installs_teleop_entrypoint_and_launch_file():
     assert "<exec_depend>sensor_msgs</exec_depend>" in package_xml
     assert "<exec_depend>std_msgs</exec_depend>" in package_xml
     assert "<exec_depend>joy</exec_depend>" in package_xml
+    assert "<exec_depend>message_filters</exec_depend>" in package_xml
     assert "dobot_joy_teleop = dobot_joy.joy_teleop:main" in setup
+    assert "dobot_data_collection = dobot_joy.data_collection:main" in setup
+    assert "dobot_data_validate = dobot_joy.data_validate:main" in setup
     assert "dobot_joy_teleop" in launch
     assert "joy_node" in launch
     assert "deadman_button_index" in launch
@@ -24,9 +27,35 @@ def test_joy_package_installs_teleop_entrypoint_and_launch_file():
     assert "enable_rumble" in launch
     assert "autorepeat_rate" in launch
     assert "diagnostics_topic" in launch
+    assert "start_data_collection" in launch
+    assert "dataset_root" in launch
+    assert "lerobot_enabled" in launch
+    assert "lerobot_dataset_root" in launch
+    assert "lerobot_repo_id" in launch
+    assert "wrist_image_topic" in launch
+    assert "global_image_topic" in launch
+    assert "max_image_skew_sec" in launch
+    assert "task_file" in launch
+    assert "limit_recovery_hold_sec" in launch
+    assert "data_reject_hold_sec" in launch
     teleop = (PACKAGE_ROOT / "dobot_joy" / "joy_teleop.py").read_text()
     assert "gripper_stop_pending" in teleop
     assert "msg.grip_state == 2" in teleop
+    assert "create_publisher(JoyFeedback," in teleop
+    assert "JoyFeedbackArray" not in teleop
+    assert '"/joy/teleop_action"' in teleop
+    assert "self.gripper_target_mm = None" in teleop
+    assert "if msg.initialized and not msg.moving:" in teleop
+    assert "self._initialize_gripper_target(msg.opening_mm)" in teleop
+    assert "if self.gripper_target_mm is None:" in teleop
+    recorder = (PACKAGE_ROOT / "dobot_joy" / "data_collection.py").read_text()
+    assert '"steps.jsonl"' in recorder
+    assert '"dobot_teleoperation_episode"' in recorder
+    assert '"action"' in recorder
+    assert '"format_version": 2' in recorder
+    assert '"LeRobotDataset v3.0"' in recorder
+    assert "lerobot_export.py" in recorder
+    assert "ApproximateTimeSynchronizer" in recorder
 
 
 def test_makefile_exposes_joy_workflows():
@@ -54,11 +83,30 @@ def test_makefile_exposes_joy_workflows():
     assert "JOY_RY_AXIS_SIGN ?= -1.0" in source
     assert "JOY_AUTOREPEAT_RATE ?= 50.0" in source
     assert "JOY_DIAGNOSTICS_TOPIC ?= /joy/teleop_diagnostics" in source
+    assert "JOY_DATASET_ROOT ?= $(WS)/data_collection" in source
+    assert "JOY_TASK_FILE ?= $(JOY_DATASET_ROOT)/current_task.txt" in source
+    assert "JOY_GLOBAL_IMAGE_TOPIC ?= /global_camera/color/image_raw" in source
+    assert "JOY_LEROBOT_ENABLED ?= true" in source
+    assert "JOY_LEROBOT_PYTHON ?= $(WS)/.venv-lerobot/bin/python" in source
+    assert "lerobot-setup:" in source
+    assert "data-lerobot-validate:" in source
+    assert "$(if $(strip $(JOY_TASK)),task_instruction:" in source
+    assert "JOY_MAX_IMAGE_SKEW_SEC) task_instruction:" not in source
     assert "gripper_init" in source
-    assert "--packages-up-to dobot_camera dobot_handeye dobot_keyboard dobot_joy dobot_ros2" in source
+    assert (
+        "--packages-up-to dobot_camera dobot_handeye "
+        "dobot_keyboard dobot_joy dobot_ros2"
+    ) in source
     assert "ros2 launch dobot_joy joy_teleop.launch.py" in source
     assert "ros2 run dobot_joy dobot_joy_teleop" in source
     assert "ros2 service call /move_jog dobot_interfaces/srv/JogCommand" in source
+    assert "data-start:" in source
+    assert "data-stop:" in source
+    assert "data-status:" in source
+    assert "data-accept:" in source
+    assert "data-reject:" in source
+    assert "data-task:" in source
+    assert "data-validate:" in source
 
 
 def test_joy_teleop_has_robot_enable_and_drag_toggles():

@@ -11,6 +11,7 @@ from dobot_joy.joy_common import (  # noqa: E402
     button_pressed,
     deadman_pressed,
     gripper_stop_target,
+    jog_axis_to_action,
 )
 
 
@@ -42,6 +43,15 @@ def test_axis_to_jog_can_disable_motion_until_deadman_is_handled_by_node():
     assert deadman_pressed([0, 0, 0, 0, 1], 4)
     assert not deadman_pressed([0, 0, 0, 0, 0], 4)
     assert axis_to_jog([0.0, -1.0, 0.0, 0.0, 0.0], mapping) == "X+"
+
+
+def test_jog_axis_to_action_uses_training_vector_order():
+    assert jog_axis_to_action("X+") == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    assert jog_axis_to_action("Z-") == [0.0, 0.0, -1.0, 0.0, 0.0, 0.0]
+    assert jog_axis_to_action("Rx+") == [0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    assert jog_axis_to_action("Rz-") == [0.0, 0.0, 0.0, 0.0, 0.0, -1.0]
+    assert jog_axis_to_action(None) == [0.0] * 6
+    assert jog_axis_to_action("invalid") == [0.0] * 6
 
 
 def test_axis_to_gripper_delta_uses_triggers_with_deadzone():

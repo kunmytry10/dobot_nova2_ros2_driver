@@ -1,0 +1,10 @@
+# Stateful joint-limit recovery command.
+# Supported actions: prepare, release, lock, status.
+string action
+---
+bool success
+int32 error_id
+string message
+int32 joint
+bool brake_released
+string raw_reply

@@ -13,6 +13,33 @@ def generate_launch_description():
             DeclareLaunchArgument("start_joy_node", default_value="true"),
             DeclareLaunchArgument("dev", default_value="/dev/input/js0"),
             DeclareLaunchArgument("autorepeat_rate", default_value="50.0"),
+            DeclareLaunchArgument("start_data_collection", default_value="true"),
+            DeclareLaunchArgument("dataset_root", default_value="data_collection"),
+            DeclareLaunchArgument(
+                "wrist_image_topic", default_value="/camera/color/image_raw"
+            ),
+            DeclareLaunchArgument(
+                "wrist_camera_info_topic", default_value="/camera/color/camera_info"
+            ),
+            DeclareLaunchArgument(
+                "global_image_topic",
+                default_value="/global_camera/color/image_raw",
+            ),
+            DeclareLaunchArgument(
+                "global_camera_info_topic",
+                default_value="/global_camera/color/camera_info",
+            ),
+            DeclareLaunchArgument("data_sample_rate_hz", default_value="10.0"),
+            DeclareLaunchArgument("max_image_skew_sec", default_value="0.05"),
+            DeclareLaunchArgument("task_instruction", default_value=""),
+            DeclareLaunchArgument("task_file", default_value=""),
+            DeclareLaunchArgument("lerobot_enabled", default_value="true"),
+            DeclareLaunchArgument("lerobot_python", default_value="python3"),
+            DeclareLaunchArgument("lerobot_dataset_root", default_value=""),
+            DeclareLaunchArgument(
+                "lerobot_repo_id", default_value="local/dobot_nova2_pi05"
+            ),
+            DeclareLaunchArgument("lerobot_export_timeout_sec", default_value="900.0"),
             DeclareLaunchArgument(
                 "diagnostics_topic", default_value="/joy/teleop_diagnostics"
             ),
@@ -39,6 +66,11 @@ def generate_launch_description():
             DeclareLaunchArgument("gripper_force_percent", default_value="50"),
             DeclareLaunchArgument("enable_rumble", default_value="true"),
             DeclareLaunchArgument("joint_limit_margin_deg", default_value="5.0"),
+            DeclareLaunchArgument("limit_recovery_hold_sec", default_value="3.0"),
+            DeclareLaunchArgument("data_reject_hold_sec", default_value="2.0"),
+            DeclareLaunchArgument(
+                "limit_recovery_release_timeout_sec", default_value="10.0"
+            ),
             Node(
                 package="joy",
                 executable="joy_node",
@@ -54,6 +86,55 @@ def generate_launch_description():
                     }
                 ],
                 condition=IfCondition(LaunchConfiguration("start_joy_node")),
+            ),
+            Node(
+                package="dobot_joy",
+                executable="dobot_data_collection",
+                name="dobot_data_collection",
+                output="screen",
+                parameters=[
+                    {
+                        "dataset_root": LaunchConfiguration("dataset_root"),
+                        "wrist_image_topic": LaunchConfiguration(
+                            "wrist_image_topic"
+                        ),
+                        "wrist_camera_info_topic": LaunchConfiguration(
+                            "wrist_camera_info_topic"
+                        ),
+                        "global_image_topic": LaunchConfiguration(
+                            "global_image_topic"
+                        ),
+                        "global_camera_info_topic": LaunchConfiguration(
+                            "global_camera_info_topic"
+                        ),
+                        "sample_rate_hz": ParameterValue(
+                            LaunchConfiguration("data_sample_rate_hz"),
+                            value_type=float,
+                        ),
+                        "task_instruction": LaunchConfiguration(
+                            "task_instruction"
+                        ),
+                        "task_file": LaunchConfiguration("task_file"),
+                        "lerobot_enabled": ParameterValue(
+                            LaunchConfiguration("lerobot_enabled"),
+                            value_type=bool,
+                        ),
+                        "lerobot_python": LaunchConfiguration("lerobot_python"),
+                        "lerobot_dataset_root": LaunchConfiguration(
+                            "lerobot_dataset_root"
+                        ),
+                        "lerobot_repo_id": LaunchConfiguration("lerobot_repo_id"),
+                        "lerobot_export_timeout_sec": ParameterValue(
+                            LaunchConfiguration("lerobot_export_timeout_sec"),
+                            value_type=float,
+                        ),
+                        "max_image_skew_sec": ParameterValue(
+                            LaunchConfiguration("max_image_skew_sec"),
+                            value_type=float,
+                        ),
+                    }
+                ],
+                condition=IfCondition(LaunchConfiguration("start_data_collection")),
             ),
             Node(
                 package="dobot_joy",
@@ -135,8 +216,22 @@ def generate_launch_description():
                             LaunchConfiguration("enable_rumble"), value_type=bool
                         ),
                         "joy.diagnostics_topic": LaunchConfiguration("diagnostics_topic"),
+                        "joy.data_reject_hold_sec": ParameterValue(
+                            LaunchConfiguration("data_reject_hold_sec"),
+                            value_type=float,
+                        ),
                         "joy.joint_limit_margin_deg": ParameterValue(
                             LaunchConfiguration("joint_limit_margin_deg"),
+                            value_type=float,
+                        ),
+                        "joy.limit_recovery_hold_sec": ParameterValue(
+                            LaunchConfiguration("limit_recovery_hold_sec"),
+                            value_type=float,
+                        ),
+                        "joy.limit_recovery_release_timeout_sec": ParameterValue(
+                            LaunchConfiguration(
+                                "limit_recovery_release_timeout_sec"
+                            ),
                             value_type=float,
                         ),
                     }

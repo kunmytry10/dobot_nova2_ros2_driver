@@ -2,8 +2,11 @@ import argparse
 import json
 import re
 import socket
+import time
 from pathlib import Path
 from typing import Iterable, List, Optional
+
+from .controller import DashboardResult
 
 
 def parse_error_ids(reply: str) -> List[int]:
@@ -35,6 +38,137 @@ def detect_limit_joint(error_ids: Iterable[int], files_dir: Path = None) -> Opti
             if match and "limit" in description.lower():
                 return int(match.group(1))
     return None
+
+
+class LimitRecoveryManager:
+    """Own the guarded prepare/release/lock lifecycle for one limit alarm."""
+
+    def __init__(self, controller, release_timeout_sec: float = 12.0):
+        self.controller = controller
+        self.release_timeout_sec = float(release_timeout_sec)
+        self.joint = 0
+        self.brake_released = False
+        self.released_at = 0.0
+
+    @property
+    def active(self) -> bool:
+        return self.joint > 0
+
+    def prepare(self) -> DashboardResult:
+        if self.brake_released:
+            return DashboardResult(False, message="a recovery brake is already released")
+        if self.active:
+            return DashboardResult(False, message="limit recovery is already prepared")
+        self.controller.move_jog(stop=True)
+        errors = self.controller.get_error_id()
+        if not errors.success:
+            return errors
+        error_ids = [int(value) for value in errors.values]
+        if not error_ids:
+            return DashboardResult(False, message="no active limit alarm")
+        unsupported = [value for value in error_ids if value < 64 or value > 75]
+        if unsupported:
+            return DashboardResult(
+                False,
+                message=f"non-limit alarms are active: {unsupported}",
+                raw_reply=errors.raw_reply,
+            )
+        joints = {detect_limit_joint([value]) for value in error_ids}
+        joints.discard(None)
+        if len(joints) != 1:
+            return DashboardResult(
+                False,
+                message=(
+                    "limit recovery requires one unambiguous joint; "
+                    f"alarms={error_ids}"
+                ),
+                raw_reply=errors.raw_reply,
+            )
+        joint = int(next(iter(joints)))
+        disabled = self.controller.disable_robot()
+        if not disabled.success:
+            return disabled
+        cleared = self.controller.clear_error()
+        if not cleared.success:
+            return cleared
+        mode = self.controller.robot_mode()
+        if not mode.success:
+            return mode
+        self.joint = joint
+        return DashboardResult(
+            True,
+            0,
+            f"limit recovery prepared for joint {joint}; robot disabled",
+            " | ".join(
+                [errors.raw_reply, disabled.raw_reply, cleared.raw_reply, mode.raw_reply]
+            ),
+        )
+
+    def release(self) -> DashboardResult:
+        joint = int(self.joint)
+        if joint < 1 or joint > 6:
+            return DashboardResult(False, message="limit recovery is not prepared")
+        if self.brake_released:
+            return DashboardResult(False, message=f"joint {joint} brake is already released")
+        mode = self.controller.robot_mode()
+        if not mode.success:
+            return mode
+        if mode.value not in {3, 4}:
+            return DashboardResult(
+                False,
+                message=(
+                    "brake release rejected: robot is not safely disabled; "
+                    f"{mode.message}"
+                ),
+                raw_reply=mode.raw_reply,
+            )
+        result = self.controller.dashboard_command(
+            f"BrakeControl({joint},1)", "limit_recovery_release"
+        )
+        if result.success:
+            self.brake_released = True
+            self.released_at = time.monotonic()
+            result.message = f"joint {joint} brake released"
+        return result
+
+    def lock(self) -> DashboardResult:
+        joint = int(self.joint)
+        if joint < 1 or joint > 6:
+            return DashboardResult(False, message="limit recovery is not prepared")
+        if not self.brake_released:
+            self.joint = 0
+            return DashboardResult(
+                True, 0, f"joint {joint} brake is locked; recovery cancelled"
+            )
+        result = self.controller.dashboard_command(
+            f"BrakeControl({joint},0)", "limit_recovery_lock"
+        )
+        if not result.success:
+            return result
+        self.brake_released = False
+        self.released_at = 0.0
+        cleared = self.controller.clear_error()
+        mode = self.controller.robot_mode()
+        errors = self.controller.get_error_id()
+        result.success = cleared.success and mode.success and errors.success
+        result.message = (
+            f"joint {joint} brake locked; robot remains disabled; {errors.message}"
+        )
+        result.raw_reply = " | ".join(
+            [result.raw_reply, cleared.raw_reply, mode.raw_reply, errors.raw_reply]
+        )
+        self.joint = 0
+        return result
+
+    def watchdog(self) -> Optional[DashboardResult]:
+        if not self.brake_released:
+            return None
+        if time.monotonic() - self.released_at < self.release_timeout_sec:
+            return None
+        result = self.lock()
+        if not result.success:
+            self.released_at = time.monotonic()
+        return result
 
 
 def _alarm_file(files_dir: Path = None) -> Path:
