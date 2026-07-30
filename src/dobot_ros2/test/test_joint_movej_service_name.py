@@ -14,6 +14,7 @@ from dobot_ros2.controller import (  # noqa: E402
     DashboardResult,
     DobotController,
     MotionResult,
+    ServoStreamBusy,
     _format_error_details,
 )
 from dobot_ros2.gripper import DhAgGripper, DobotModbusAgGripper, GripperConfig, _crc  # noqa: E402
@@ -107,14 +108,30 @@ def test_servo_p_accepts_documented_no_reply_behavior():
     assert result.raw_reply == ""
 
 
+def test_prepared_servo_p_skips_per_tick_connect_check():
+    controller = DobotController(ControllerConfig())
+    calls = []
+    controller.connect = lambda: calls.append("connect")
+    controller._send_move_streaming = lambda command: calls.append(command) or ""
+
+    result = controller.servo_p(
+        [100, 200, 300, 10, 20, 30],
+        ensure_connected=False,
+    )
+
+    assert result.success
+    assert "connect" not in calls
+    assert calls == [
+        "ServoP(100.000000,200.000000,300.000000,10.000000,20.000000,30.000000)"
+    ]
+
+
 def test_streaming_send_drains_replies_without_waiting():
     class FakeSocket:
         def __init__(self):
             self.timeout = None
             self.replies = [
                 b"0,{},previous;",
-                BlockingIOError(),
-                b"0,{},current;",
                 BlockingIOError(),
             ]
             self.sent = []
@@ -128,15 +145,17 @@ def test_streaming_send_drains_replies_without_waiting():
         def setblocking(self, blocking):
             self.timeout = None if blocking else 0.0
 
-        def recv(self, size):
-            del size
+        def recv(self, size, flags=0):
+            del size, flags
             value = self.replies.pop(0)
             if isinstance(value, Exception):
                 raise value
             return value
 
-        def sendall(self, data):
+        def send(self, data, flags=0):
+            del flags
             self.sent.append(data)
+            return len(data)
 
     controller = DobotController(ControllerConfig())
     socket_obj = FakeSocket()
@@ -144,10 +163,65 @@ def test_streaming_send_drains_replies_without_waiting():
 
     reply = controller._send_move_streaming("ServoP(1,2,3,4,5,6)")
 
-    assert reply == "0,{},previous;0,{},current;"
+    assert reply == "0,{},previous;"
     assert socket_obj.sent == [b"ServoP(1,2,3,4,5,6)"]
     assert socket_obj.timeout is None
     assert controller._move_channel_streaming
+
+
+def test_streaming_send_reports_busy_without_blocking():
+    class FakeSocket:
+        def __init__(self):
+            self.timeout = None
+
+        def gettimeout(self):
+            return self.timeout
+
+        def settimeout(self, timeout):
+            self.timeout = timeout
+
+        def setblocking(self, blocking):
+            self.timeout = None if blocking else 0.0
+
+        def recv(self, size, flags=0):
+            del size, flags
+            raise BlockingIOError()
+
+        def send(self, data, flags=0):
+            del data, flags
+            raise BlockingIOError()
+
+    controller = DobotController(ControllerConfig())
+    socket_obj = FakeSocket()
+    controller.move_client = SimpleNamespace(socket_dobot=socket_obj)
+
+    try:
+        controller._send_move_streaming("ServoP(1,2,3,4,5,6)")
+    except ServoStreamBusy:
+        pass
+    else:
+        raise AssertionError("busy ServoP socket must not block or report success")
+
+    assert socket_obj.timeout is None
+    assert not controller._move_channel_streaming
+
+
+def test_streaming_reply_drain_is_bounded():
+    class FakeSocket:
+        def __init__(self):
+            self.reads = 0
+
+        def recv(self, size, flags=0):
+            del size, flags
+            self.reads += 1
+            return b"0,{},ServoP();"
+
+    socket_obj = FakeSocket()
+
+    replies = DobotController._drain_streaming_replies(socket_obj, max_reads=4)
+
+    assert len(replies) == 4
+    assert socket_obj.reads == 4
 
 
 def test_end_servo_stream_reconnects_move_channel():
@@ -339,9 +413,11 @@ def test_gripper_services_are_registered():
     interfaces_source = (PACKAGE_ROOT.parent / "dobot_interfaces" / "CMakeLists.txt").read_text()
     config_source = (PACKAGE_ROOT / "config" / "dobot_ros2.yaml").read_text()
 
-    assert 'create_service(Trigger, "gripper_init"' in driver_source
-    assert 'create_service(GripperCommand, "gripper_move"' in driver_source
-    assert 'create_service(GripperState, "get_gripper_state"' in driver_source
+    assert '"gripper_init"' in driver_source
+    assert '"gripper_move"' in driver_source
+    assert '"get_gripper_state"' in driver_source
+    assert "gripper_command_callback_group" in driver_source
+    assert "gripper_state_callback_group" in driver_source
     assert "DobotModbusAgGripper" in driver_source
     assert 'create_publisher(DobotState, "dobot_state"' in driver_source
     assert 'create_publisher(GripperStatus, "gripper_state"' in driver_source
@@ -402,8 +478,15 @@ def test_gripper_dobot_modbus_commands_match_tcp_api():
     assert calls[0][0] == "ModbusCreate(127.0.0.1,60000,1,1)"
     assert ("SetHoldRegs(0,257,1,{50},U16)", "gripper_modbus_write") in calls
     assert ("SetHoldRegs(0,259,1,{500},U16)", "gripper_modbus_write") in calls
-    assert ("GetHoldRegs(0,512,1,U16)", "gripper_modbus_read") in calls
-    assert result.object_detected
+    assert not any(command.startswith("GetHoldRegs") for command, _ in calls)
+    assert result.moving
+    assert result.opening_mm == 47.5
+
+    gripper.move(95.0, -1, -1, 80.0, wait=False, timeout_sec=1.0)
+    force_writes = [
+        command for command, _ in calls if command.startswith("SetHoldRegs(0,257,")
+    ]
+    assert len(force_writes) == 1
 
 
 def test_motion_command_mapping_matches_ros_abstraction():

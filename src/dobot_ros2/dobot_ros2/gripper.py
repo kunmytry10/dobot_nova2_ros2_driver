@@ -77,6 +77,7 @@ class DobotModbusAgGripper:
         self.config = config
         self._command = command
         self._index = int(config.modbus_index)
+        self._last_force_percent = None
 
     def connect(self) -> GripperResult:
         if not self.config.enabled:
@@ -106,6 +107,7 @@ class DobotModbusAgGripper:
             return
         self._command(f"ModbusClose({self._index:d})", "gripper_modbus_close")
         self._index = -1
+        self._last_force_percent = None
 
     def is_connected(self) -> bool:
         return self._index >= 0
@@ -135,15 +137,25 @@ class DobotModbusAgGripper:
 
         target = self._target_permille(opening_mm, position_permille)
         force = self._target_force_percent(force_percent, force_n)
-        force_result = self._write_register(REG_FORCE, force)
-        if not force_result.success:
-            return force_result
+        if force != self._last_force_percent:
+            force_result = self._write_register(REG_FORCE, force)
+            if not force_result.success:
+                return force_result
+            self._last_force_percent = force
         position_result = self._write_register(REG_POSITION, target)
         if not position_result.success:
             return position_result
         if wait:
             return self._wait_for_motion(timeout_sec)
-        return self.state(prefix="gripper move accepted")
+        return GripperResult(
+            True,
+            "gripper move accepted",
+            grip_state=GRIP_STATE_MOVING,
+            position_permille=target,
+            opening_mm=self._permille_to_mm(target),
+            force_percent=force,
+            connected=True,
+        )
 
     def state(self, prefix: str = "gripper state") -> GripperResult:
         ensure = self._ensure_connected()
@@ -160,6 +172,8 @@ class DobotModbusAgGripper:
             return position
         force = self._read_register(REG_FORCE)
         force_value = force.force_percent if force.success else -1
+        if force.success:
+            self._last_force_percent = force_value
         return GripperResult(
             True,
             prefix,
@@ -266,6 +280,7 @@ class DhAgGripper:
     def __init__(self, config: GripperConfig):
         self.config = config
         self._serial = None
+        self._last_force_percent = None
 
     def connect(self) -> GripperResult:
         if not self.config.enabled:
@@ -294,6 +309,7 @@ class DhAgGripper:
         if self._serial is not None:
             self._serial.close()
             self._serial = None
+        self._last_force_percent = None
 
     def is_connected(self) -> bool:
         return bool(self._serial is not None and self._serial.is_open)
@@ -323,15 +339,25 @@ class DhAgGripper:
 
         target = self._target_permille(opening_mm, position_permille)
         force = self._target_force_percent(force_percent, force_n)
-        force_result = self._write_register(REG_FORCE, force)
-        if not force_result.success:
-            return force_result
+        if force != self._last_force_percent:
+            force_result = self._write_register(REG_FORCE, force)
+            if not force_result.success:
+                return force_result
+            self._last_force_percent = force
         position_result = self._write_register(REG_POSITION, target)
         if not position_result.success:
             return position_result
         if wait:
             return self._wait_for_motion(timeout_sec)
-        return self.state(prefix="gripper move accepted")
+        return GripperResult(
+            True,
+            "gripper move accepted",
+            grip_state=GRIP_STATE_MOVING,
+            position_permille=target,
+            opening_mm=self._permille_to_mm(target),
+            force_percent=force,
+            connected=True,
+        )
 
     def state(self, prefix: str = "gripper state") -> GripperResult:
         ensure = self._ensure_connected()
@@ -348,6 +374,8 @@ class DhAgGripper:
             return position
         force = self._read_register(REG_FORCE)
         force_value = force.force_percent if force.success else -1
+        if force.success:
+            self._last_force_percent = force_value
         return GripperResult(
             True,
             prefix,

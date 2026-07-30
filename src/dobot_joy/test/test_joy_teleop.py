@@ -8,6 +8,9 @@ class _Logger:
     def info(self, _message):
         pass
 
+    def error(self, _message):
+        pass
+
 
 def test_gripper_target_initializes_once_from_feedback():
     node = SimpleNamespace(
@@ -41,3 +44,21 @@ def test_idle_trigger_axes_preserve_discrete_gripper_target_action():
     JoyTeleopNode._handle_gripper_axis(node, [0.0] * 6)
 
     assert node.gripper_action == "close"
+
+
+def test_busy_gripper_keeps_latest_command_instead_of_dropping_it():
+    diagnostics = []
+    node = SimpleNamespace(
+        gripper_busy=True,
+        gripper_move_pending=None,
+        latest_gripper_opening_mm=95.0,
+        gripper_target_mm=95.0,
+        _publish_diagnostic=diagnostics.append,
+    )
+
+    JoyTeleopNode._move_gripper(node, 0.0, "gripper toggle", requested_at=12.0)
+
+    assert node.gripper_move_pending == (0.0, "gripper toggle", 12.0)
+    assert node.latest_gripper_opening_mm == 0.0
+    assert node.gripper_target_mm == 0.0
+    assert diagnostics[-1]["event"] == "gripper_command_queued"

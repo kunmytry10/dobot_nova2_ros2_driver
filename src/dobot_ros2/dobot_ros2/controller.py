@@ -267,6 +267,10 @@ class DashboardResult:
     values: List[int] = field(default_factory=list)
 
 
+class ServoStreamBusy(RuntimeError):
+    """The non-blocking ServoP socket cannot accept a complete command now."""
+
+
 @dataclass
 class TeachResult:
     """Normalized result for teach record/replay operations."""
@@ -422,12 +426,28 @@ class DobotController:
         except Exception as exc:
             return DashboardResult(False, message=f"move_jog failed: {exc}")
 
-    def servo_p(self, pose: Sequence[float]) -> DashboardResult:
+    def prepare_servo_stream(self) -> None:
+        """Connect once before entering the time-critical ServoP loop."""
+        self.connect()
+        with self._move_command_lock:
+            if self.move_client is None:
+                raise RuntimeError("move client is not connected")
+            socket_obj = getattr(self.move_client, "socket_dobot", None)
+            if socket_obj in (None, 0):
+                raise RuntimeError("move socket is not connected")
+            self._drain_streaming_replies(socket_obj)
+
+    def servo_p(
+        self,
+        pose: Sequence[float],
+        ensure_connected: bool = True,
+    ) -> DashboardResult:
         """Send one Cartesian target and drain an optional controller reply."""
         values = list(pose[:6])
         if len(values) != 6:
             raise ValueError("ServoP requires exactly six TCP pose values")
-        self.connect()
+        if ensure_connected:
+            self.connect()
         command = f"ServoP({_format_values(values)})"
         raw_reply = self._send_move_streaming(command)
         error_id = _reply_error_id(raw_reply)
@@ -1723,42 +1743,44 @@ class DobotController:
             self._move_channel_streaming = True
 
     def _send_move_streaming(self, command: str) -> str:
-        """Drain optional replies and send a streaming command without waiting."""
+        """Drain optional replies and send one ServoP command without blocking."""
         with self._move_command_lock:
             if self.move_client is None:
                 raise RuntimeError("move client is not connected")
             socket_obj = getattr(self.move_client, "socket_dobot", None)
             if socket_obj in (None, 0):
                 raise RuntimeError("move socket is not connected")
-            old_timeout = socket_obj.gettimeout()
+            replies = self._drain_streaming_replies(socket_obj)
+            payload = str.encode(command, "utf-8")
             try:
-                socket_obj.setblocking(False)
-                replies = []
-                while True:
-                    try:
-                        reply = socket_obj.recv(1024)
-                    except BlockingIOError:
-                        break
-                    if not reply:
-                        raise ConnectionError("move socket closed by controller")
-                    replies.append(_as_text(reply))
-            finally:
-                socket_obj.settimeout(old_timeout)
-            socket_obj.sendall(str.encode(command, "utf-8"))
+                sent = socket_obj.send(payload, socket.MSG_DONTWAIT)
+            except BlockingIOError as exc:
+                raise ServoStreamBusy("ServoP socket send buffer is busy") from exc
+            if sent != len(payload):
+                raise ConnectionError(
+                    f"partial ServoP send: {sent}/{len(payload)} bytes"
+                )
             self._move_channel_streaming = True
-            try:
-                socket_obj.setblocking(False)
-                while True:
-                    try:
-                        reply = socket_obj.recv(1024)
-                    except BlockingIOError:
-                        break
-                    if not reply:
-                        raise ConnectionError("move socket closed by controller")
-                    replies.append(_as_text(reply))
-            finally:
-                socket_obj.settimeout(old_timeout)
             return "".join(replies)
+
+    @staticmethod
+    def _drain_streaming_replies(socket_obj, max_reads: int = 4) -> List[str]:
+        """Drain a bounded amount of delayed ServoP replies.
+
+        Reply traffic is optional for ServoP.  A bounded drain prevents a busy
+        controller from keeping the 33 Hz scheduler inside recv indefinitely.
+        Any reply left behind is handled on the next tick.
+        """
+        replies = []
+        for _ in range(max(0, int(max_reads))):
+            try:
+                reply = socket_obj.recv(4096, socket.MSG_DONTWAIT)
+            except BlockingIOError:
+                break
+            if not reply:
+                raise ConnectionError("move socket closed by controller")
+            replies.append(_as_text(reply))
+        return replies
 
     def _save_trajectory(self, name: str, points: Sequence[dict], path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

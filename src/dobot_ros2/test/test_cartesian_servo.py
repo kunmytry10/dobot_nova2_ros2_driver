@@ -1,3 +1,6 @@
+import threading
+from types import SimpleNamespace
+
 from dobot_ros2.cartesian_servo import (
     clamp_normalized_vector,
     integrate_pose,
@@ -6,6 +9,8 @@ from dobot_ros2.cartesian_servo import (
     select_hold_pose,
     slew_vector,
 )
+from dobot_ros2.controller import DashboardResult
+from dobot_ros2.driver_node import DobotMotionServer
 
 
 def test_servo_vector_is_clamped_and_slew_limited():
@@ -48,3 +53,40 @@ def test_servo_workspace_and_joint_margin_are_fail_closed():
     assert not pose_within_workspace([500.0, 500.0, 200.0, 0.0, 0.0, 0.0], minimum, maximum, 625.0)
     assert joints_within_margin([0.0] * 6, [-180.0] * 6, [180.0] * 6, 5.0)
     assert not joints_within_margin([179.0] + [0.0] * 5, [-180.0] * 6, [180.0] * 6, 5.0)
+
+
+def test_command_watchdog_holds_target_without_destroying_stream():
+    calls = []
+    node = SimpleNamespace(
+        servo_active=True,
+        servo_pause_reason="",
+        servo_target_pose=[100.0, 200.0, 300.0, 0.0, 0.0, 0.0],
+        servo_applied_velocity=[1.0] * 6,
+        servo_last_send_success=0.0,
+        servo_command_lock=threading.Lock(),
+        servo_transport_fault_latched=False,
+        controller=SimpleNamespace(
+            servo_p=lambda pose, ensure_connected: (
+                calls.append((list(pose), ensure_connected))
+                or DashboardResult(True, error_id=0)
+            )
+        ),
+        get_logger=lambda: SimpleNamespace(warning=lambda message: calls.append(message)),
+        _reset_cartesian_servo_stats=lambda now: calls.append(("reset", now)),
+        _publish_cartesian_servo_applied=lambda active, status: calls.append(
+            (active, status)
+        ),
+    )
+
+    paused = DobotMotionServer._pause_cartesian_servo(
+        node,
+        "command watchdog",
+        12.0,
+    )
+
+    assert paused
+    assert node.servo_active
+    assert node.servo_pause_reason == "command watchdog"
+    assert node.servo_applied_velocity == [0.0] * 6
+    assert calls[0] == (node.servo_target_pose, False)
+    assert calls[-1] == (False, "command watchdog")

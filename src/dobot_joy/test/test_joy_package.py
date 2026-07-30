@@ -45,6 +45,10 @@ def test_joy_package_installs_teleop_entrypoint_and_launch_file():
     assert "JoyFeedbackArray" not in teleop
     assert '"/joy/teleop_action"' in teleop
     assert "self.gripper_target_mm = None" in teleop
+    assert "self.gripper_move_pending = None" in teleop
+    assert "MultiThreadedExecutor(num_threads=3)" in teleop
+    assert "depth=1" in teleop
+    assert "callback_group=self.control_callback_group" in teleop
     assert "if msg.initialized and not msg.moving:" in teleop
     assert "self._initialize_gripper_target(msg.opening_mm)" in teleop
     assert "if self.gripper_target_mm is None:" in teleop

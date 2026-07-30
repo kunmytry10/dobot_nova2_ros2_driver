@@ -32,6 +32,7 @@ from .controller import (
     DashboardResult,
     DobotController,
     FeedbackState,
+    ServoStreamBusy,
     TeachResult,
 )
 from .cartesian_servo import (
@@ -74,6 +75,8 @@ class DobotMotionServer(Node):
             ),
         )
         self.gripper = self._create_gripper(self._load_gripper_config())
+        self.gripper_command_callback_group = MutuallyExclusiveCallbackGroup()
+        self.gripper_state_callback_group = MutuallyExclusiveCallbackGroup()
         self.gripper_state_rate_hz = float(
             self.declare_parameter("gripper_state_rate_hz", 2.0).value
         )
@@ -91,6 +94,7 @@ class DobotMotionServer(Node):
             self.gripper_state_timer = self.create_timer(
                 1.0 / self.gripper_state_rate_hz,
                 self._publish_gripper_state,
+                callback_group=self.gripper_state_callback_group,
             )
 
         self.create_service(MoveCommand, "movej", self._movej)
@@ -115,9 +119,24 @@ class DobotMotionServer(Node):
         self.create_service(TrajectoryCommand, "teach_delete", self._teach_delete)
         self.create_service(TrajectoryList, "teach_list", self._teach_list)
         self.create_service(Trigger, "teach_status", self._teach_status)
-        self.create_service(Trigger, "gripper_init", self._gripper_init)
-        self.create_service(GripperCommand, "gripper_move", self._gripper_move)
-        self.create_service(GripperState, "get_gripper_state", self._get_gripper_state)
+        self.create_service(
+            Trigger,
+            "gripper_init",
+            self._gripper_init,
+            callback_group=self.gripper_command_callback_group,
+        )
+        self.create_service(
+            GripperCommand,
+            "gripper_move",
+            self._gripper_move,
+            callback_group=self.gripper_command_callback_group,
+        )
+        self.create_service(
+            GripperState,
+            "get_gripper_state",
+            self._get_gripper_state,
+            callback_group=self.gripper_state_callback_group,
+        )
         self.create_timer(0.1, self._limit_recovery_watchdog)
 
         if bool(self.declare_parameter("connect_on_start", True).value):
@@ -126,8 +145,13 @@ class DobotMotionServer(Node):
                 self.get_logger().info("Connected to Dobot controller")
             except Exception as exc:
                 self.get_logger().error(f"Initial Dobot connection failed: {exc}")
+        self._start_cartesian_servo_loop()
 
     def destroy_node(self):
+        self.servo_stop_event.set()
+        if self.servo_thread is not None:
+            self.servo_thread.join(timeout=1.0)
+            self.servo_thread = None
         self._stop_cartesian_servo("node shutdown", reset_channel=True)
         if self.limit_recovery.brake_released:
             self.limit_recovery.lock()
@@ -145,6 +169,16 @@ class DobotMotionServer(Node):
         self.servo_feedback_watchdog_sec = float(
             self.declare_parameter(
                 "cartesian_servo.feedback_watchdog_sec", 0.25
+            ).value
+        )
+        self.servo_transport_watchdog_sec = float(
+            self.declare_parameter(
+                "cartesian_servo.transport_watchdog_sec", 0.2
+            ).value
+        )
+        self.servo_applied_rate_hz = float(
+            self.declare_parameter(
+                "cartesian_servo.applied_rate_hz", 20.0
             ).value
         )
         self.servo_max_translation_mm_s = float(
@@ -180,13 +214,16 @@ class DobotMotionServer(Node):
         )
         self.servo_command = [0.0] * 6
         self.servo_command_lock = threading.Lock()
+        self.servo_state_lock = threading.RLock()
         self.servo_command_callback_group = MutuallyExclusiveCallbackGroup()
-        self.servo_timer_callback_group = MutuallyExclusiveCallbackGroup()
+        self.servo_stop_event = threading.Event()
+        self.servo_thread = None
         self.servo_command_active = False
         self.servo_command_deadman = False
         self.servo_command_coord_type = 0
         self.servo_command_received = 0.0
         self.servo_active = False
+        self.servo_pause_reason = ""
         self.servo_transport_fault_latched = False
         self.servo_target_pose = None
         self.servo_applied_velocity = [0.0] * 6
@@ -196,6 +233,10 @@ class DobotMotionServer(Node):
         self.servo_stats_dt_sum = 0.0
         self.servo_stats_dt_max = 0.0
         self.servo_stats_send_max = 0.0
+        self.servo_stats_busy_ticks = 0
+        self.servo_last_send_success = self.servo_last_tick
+        self.servo_last_applied_publish = 0.0
+        self.servo_last_applied_status = ""
         servo_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
@@ -211,12 +252,37 @@ class DobotMotionServer(Node):
         self.servo_applied_pub = self.create_publisher(
             CartesianServoCommand, "/cartesian_servo/applied", servo_qos
         )
-        if self.servo_rate_hz > 0.0:
-            self.servo_timer = self.create_timer(
-                1.0 / self.servo_rate_hz,
-                self._cartesian_servo_tick,
-                callback_group=self.servo_timer_callback_group,
-            )
+
+    def _start_cartesian_servo_loop(self):
+        if self.servo_rate_hz <= 0.0 or self.servo_thread is not None:
+            return
+        self.servo_thread = threading.Thread(
+            target=self._cartesian_servo_loop,
+            name="dobot-cartesian-servo",
+            daemon=True,
+        )
+        self.servo_thread.start()
+        self.get_logger().info(
+            f"Cartesian ServoP scheduler ready at {self.servo_rate_hz:.1f} Hz"
+        )
+
+    def _cartesian_servo_loop(self):
+        period = 1.0 / self.servo_rate_hz
+        next_tick = time.monotonic()
+        while not self.servo_stop_event.is_set():
+            delay = next_tick - time.monotonic()
+            if delay > 0.0 and self.servo_stop_event.wait(delay):
+                return
+            try:
+                self._cartesian_servo_tick()
+            except Exception as exc:
+                self.get_logger().error(f"Cartesian ServoP scheduler failed: {exc}")
+            next_tick += period
+            now = time.monotonic()
+            if next_tick <= now:
+                # Skip missed slots. Sending catch-up bursts creates stale
+                # targets and increases controller-side TCP backpressure.
+                next_tick = now + period
 
     def _on_cartesian_servo_command(self, message: CartesianServoCommand):
         with self.servo_command_lock:
@@ -231,21 +297,21 @@ class DobotMotionServer(Node):
                 self.servo_transport_fault_latched = False
 
     def _cartesian_servo_tick(self):
+        with self.servo_state_lock:
+            self._cartesian_servo_tick_locked()
+
+    def _cartesian_servo_tick_locked(self):
         now = time.monotonic()
         tick_dt = max(now - self.servo_last_tick, 0.0)
-        dt = min(tick_dt, 0.1)
+        dt = min(tick_dt, 2.0 / self.servo_rate_hz)
         self.servo_last_tick = now
         with self.servo_command_lock:
             reason = self._cartesian_servo_rejection(now)
             command = list(self.servo_command)
         if reason:
-            if reason == "feedback watchdog" and self.servo_active:
-                # Keep the last target and stream state across a short
-                # feedback gap. Reinitializing from delayed feedback here
-                # creates a visible pause and can pull the TCP backward.
-                self.servo_applied_velocity = [0.0] * 6
-                self._publish_cartesian_servo_applied(False, reason)
-                return
+            if reason in {"command watchdog", "feedback watchdog"}:
+                if self._pause_cartesian_servo(reason, now):
+                    return
             soft_stop = reason in NON_REVERSING_HOLD_REASONS
             self._stop_cartesian_servo(
                 reason,
@@ -255,22 +321,41 @@ class DobotMotionServer(Node):
             self._publish_cartesian_servo_applied(False, reason)
             return
 
+        if self.servo_pause_reason:
+            self.get_logger().info(
+                f"Cartesian ServoP stream resumed after {self.servo_pause_reason}"
+            )
+            self.servo_pause_reason = ""
+            self._reset_cartesian_servo_stats(now)
+
         state = self.controller.latest_state()
         if not self.servo_active:
+            try:
+                self.controller.prepare_servo_stream()
+            except Exception as exc:
+                with self.servo_command_lock:
+                    self.servo_transport_fault_latched = True
+                self.get_logger().error(
+                    f"Cartesian ServoP prepare failed: {exc}"
+                )
+                self._publish_cartesian_servo_applied(
+                    False,
+                    "transport failure",
+                    force=True,
+                )
+                return
             self.servo_active = True
             self.servo_target_pose = list(state.tcp_pose[:6])
             self.servo_applied_velocity = [0.0] * 6
-            self.servo_stats_started = now
-            self.servo_stats_ticks = 0
-            self.servo_stats_dt_sum = 0.0
-            self.servo_stats_dt_max = 0.0
-            self.servo_stats_send_max = 0.0
+            self._reset_cartesian_servo_stats(now)
+            self.servo_last_send_success = now
             self.get_logger().info(
                 f"Cartesian ServoP stream started at {self.servo_rate_hz:.1f} Hz"
             )
 
+        previous_velocity = list(self.servo_applied_velocity)
         self.servo_applied_velocity = slew_vector(
-            self.servo_applied_velocity,
+            previous_velocity,
             command,
             self.servo_accel_normalized_s * dt,
         )
@@ -292,12 +377,30 @@ class DobotMotionServer(Node):
             return
         try:
             send_started = time.monotonic()
-            result = self.controller.servo_p(target)
+            result = self.controller.servo_p(target, ensure_connected=False)
             send_elapsed = time.monotonic() - send_started
             if not result.success:
                 raise RuntimeError(
                     f"error_id={result.error_id}, raw_reply={result.raw_reply}"
                 )
+        except ServoStreamBusy:
+            self.servo_applied_velocity = previous_velocity
+            self.servo_stats_busy_ticks += 1
+            if now - self.servo_last_send_success <= self.servo_transport_watchdog_sec:
+                self._publish_cartesian_servo_applied(
+                    True,
+                    "transport busy; holding previous target",
+                )
+                return
+            with self.servo_command_lock:
+                self.servo_transport_fault_latched = True
+            self._stop_cartesian_servo(
+                "ServoP transport busy watchdog",
+                send_hold=False,
+                reset_channel=True,
+            )
+            self._publish_cartesian_servo_applied(False, "transport failure")
+            return
         except Exception as exc:
             with self.servo_command_lock:
                 self.servo_transport_fault_latched = True
@@ -309,8 +412,47 @@ class DobotMotionServer(Node):
             self._publish_cartesian_servo_applied(False, "transport failure")
             return
         self.servo_target_pose = target
+        self.servo_last_send_success = now
         self._update_cartesian_servo_stats(now, tick_dt, send_elapsed)
         self._publish_cartesian_servo_applied(True, "applied")
+
+    def _pause_cartesian_servo(self, reason: str, now: float) -> bool:
+        if not self.servo_active:
+            return False
+        self.servo_applied_velocity = [0.0] * 6
+        if reason != self.servo_pause_reason:
+            if reason == "command watchdog" and self.servo_target_pose is not None:
+                try:
+                    result = self.controller.servo_p(
+                        self.servo_target_pose,
+                        ensure_connected=False,
+                    )
+                    if not result.success:
+                        raise RuntimeError(
+                            f"error_id={result.error_id}, raw_reply={result.raw_reply}"
+                        )
+                    self.servo_last_send_success = now
+                except Exception as exc:
+                    with self.servo_command_lock:
+                        self.servo_transport_fault_latched = True
+                    self._stop_cartesian_servo(
+                        f"ServoP watchdog hold failed: {exc}",
+                        send_hold=False,
+                        reset_channel=True,
+                    )
+                    self._publish_cartesian_servo_applied(
+                        False,
+                        "transport failure",
+                        force=True,
+                    )
+                    return True
+            self.servo_pause_reason = reason
+            self.get_logger().warning(
+                f"Cartesian ServoP stream paused: {reason}"
+            )
+            self._reset_cartesian_servo_stats(now)
+        self._publish_cartesian_servo_applied(False, reason)
+        return True
 
     def _cartesian_servo_rejection(self, now: float) -> str:
         if not self.servo_command_active or not self.servo_command_deadman:
@@ -345,6 +487,15 @@ class DobotMotionServer(Node):
         send_hold: bool = True,
         reset_channel: bool = False,
     ):
+        with self.servo_state_lock:
+            self._stop_cartesian_servo_locked(reason, send_hold, reset_channel)
+
+    def _stop_cartesian_servo_locked(
+        self,
+        reason: str,
+        send_hold: bool,
+        reset_channel: bool,
+    ):
         if not self.servo_active:
             self.servo_applied_velocity = [0.0] * 6
             return
@@ -356,7 +507,10 @@ class DobotMotionServer(Node):
         )
         if send_hold and len(hold_pose) >= 6:
             try:
-                result = self.controller.servo_p(hold_pose)
+                result = self.controller.servo_p(
+                    hold_pose,
+                    ensure_connected=False,
+                )
                 if not result.success:
                     self.get_logger().error(
                         "Cartesian ServoP hold rejected: "
@@ -371,6 +525,7 @@ class DobotMotionServer(Node):
         self.servo_active = False
         self.servo_target_pose = None
         self.servo_applied_velocity = [0.0] * 6
+        self.servo_pause_reason = ""
         self.get_logger().info(f"Cartesian ServoP stream stopped: {reason}")
 
     def _update_cartesian_servo_stats(
@@ -393,15 +548,39 @@ class DobotMotionServer(Node):
             f"rate={actual_rate:.1f} Hz, mean_dt={mean_dt * 1000.0:.1f} ms, "
             f"max_dt={self.servo_stats_dt_max * 1000.0:.1f} ms, "
             f"max_send={self.servo_stats_send_max * 1000.0:.1f} ms, "
+            f"busy_ticks={self.servo_stats_busy_ticks}, "
             f"command={[round(value, 3) for value in self.servo_command]}"
         )
+        self._reset_cartesian_servo_stats(now)
+
+    def _reset_cartesian_servo_stats(self, now: float):
         self.servo_stats_started = now
         self.servo_stats_ticks = 0
         self.servo_stats_dt_sum = 0.0
         self.servo_stats_dt_max = 0.0
         self.servo_stats_send_max = 0.0
+        self.servo_stats_busy_ticks = 0
 
-    def _publish_cartesian_servo_applied(self, active: bool, status: str):
+    def _publish_cartesian_servo_applied(
+        self,
+        active: bool,
+        status: str,
+        force: bool = False,
+    ):
+        now = time.monotonic()
+        period = (
+            1.0 / self.servo_applied_rate_hz
+            if self.servo_applied_rate_hz > 0.0
+            else 0.0
+        )
+        status_changed = status != self.servo_last_applied_status
+        if (
+            not force
+            and not status_changed
+            and period > 0.0
+            and now - self.servo_last_applied_publish < period
+        ):
+            return
         message = CartesianServoCommand()
         message.stamp = self.get_clock().now().to_msg()
         message.normalized_velocity = list(self.servo_applied_velocity)
@@ -412,6 +591,8 @@ class DobotMotionServer(Node):
         message.tool = 0
         message.status = str(status)
         self.servo_applied_pub.publish(message)
+        self.servo_last_applied_publish = now
+        self.servo_last_applied_status = str(status)
 
     def _load_config(self) -> ControllerConfig:
         return ControllerConfig(
@@ -804,6 +985,7 @@ class DobotMotionServer(Node):
         return response
 
     def _gripper_move(self, request: GripperCommand.Request, response: GripperCommand.Response):
+        started_at = time.monotonic()
         result = self.gripper.move(
             float(request.opening_mm),
             int(request.position_permille),
@@ -812,11 +994,16 @@ class DobotMotionServer(Node):
             bool(request.wait),
             float(request.timeout_sec),
         )
+        elapsed_ms = (time.monotonic() - started_at) * 1000.0
         self._fill_gripper_command_response(result, response)
         if result.success:
-            self.get_logger().info("gripper_move accepted")
+            self.get_logger().info(
+                f"gripper_move accepted in {elapsed_ms:.1f} ms"
+            )
         else:
-            self.get_logger().warning(f"gripper_move rejected: {result.message}")
+            self.get_logger().warning(
+                f"gripper_move rejected in {elapsed_ms:.1f} ms: {result.message}"
+            )
         return response
 
     def _get_gripper_state(self, request, response: GripperState.Response):
@@ -1034,10 +1221,13 @@ def main(args=None):
     executor.add_node(node)
     try:
         executor.spin()
+    except KeyboardInterrupt:
+        pass
     finally:
         executor.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

@@ -15,6 +15,8 @@ from dobot_interfaces.srv import (
     JogCommand,
     LimitRecovery,
 )
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState, Joy, JoyFeedback
@@ -159,6 +161,7 @@ class JoyTeleopNode(Node):
         self.trigger_neutral_axes = None
         self.latest_gripper_opening_mm = None
         self.gripper_busy = False
+        self.gripper_move_pending = None
         self.gripper_stop_pending = False
         self.last_gripper_command_time = 0.0
         self.active_gripper_axis = None
@@ -174,7 +177,12 @@ class JoyTeleopNode(Node):
         self.limit_recovery_pending = False
         self.limit_recovery_released = False
         self.limit_recovery_released_at = 0.0
-        self.jog_client = self.create_client(JogCommand, "/move_jog")
+        self.control_callback_group = MutuallyExclusiveCallbackGroup()
+        self.jog_client = self.create_client(
+            JogCommand,
+            "/move_jog",
+            callback_group=self.control_callback_group,
+        )
         servo_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
@@ -183,27 +191,95 @@ class JoyTeleopNode(Node):
         self.servo_command_pub = self.create_publisher(
             CartesianServoCommand, "/cartesian_servo/command", servo_qos
         )
-        self.estop_client = self.create_client(Trigger, "/emergency_stop")
-        self.clear_error_client = self.create_client(Trigger, "/clear_error")
-        self.enable_robot_client = self.create_client(Trigger, "/enable_robot")
-        self.disable_robot_client = self.create_client(Trigger, "/disable_robot")
-        self.drag_start_client = self.create_client(Trigger, "/drag_start")
-        self.drag_stop_client = self.create_client(Trigger, "/drag_stop")
-        self.gripper_state_client = self.create_client(GripperState, "/get_gripper_state")
-        self.gripper_move_client = self.create_client(GripperCommand, "/gripper_move")
-        self.data_start_client = self.create_client(Trigger, "/data_collection/start")
-        self.data_stop_client = self.create_client(Trigger, "/data_collection/stop")
+        self.estop_client = self.create_client(
+            Trigger,
+            "/emergency_stop",
+            callback_group=self.control_callback_group,
+        )
+        self.clear_error_client = self.create_client(
+            Trigger,
+            "/clear_error",
+            callback_group=self.control_callback_group,
+        )
+        self.enable_robot_client = self.create_client(
+            Trigger,
+            "/enable_robot",
+            callback_group=self.control_callback_group,
+        )
+        self.disable_robot_client = self.create_client(
+            Trigger,
+            "/disable_robot",
+            callback_group=self.control_callback_group,
+        )
+        self.drag_start_client = self.create_client(
+            Trigger,
+            "/drag_start",
+            callback_group=self.control_callback_group,
+        )
+        self.drag_stop_client = self.create_client(
+            Trigger,
+            "/drag_stop",
+            callback_group=self.control_callback_group,
+        )
+        self.gripper_state_client = self.create_client(
+            GripperState,
+            "/get_gripper_state",
+            callback_group=self.control_callback_group,
+        )
+        self.gripper_move_client = self.create_client(
+            GripperCommand,
+            "/gripper_move",
+            callback_group=self.control_callback_group,
+        )
+        self.data_start_client = self.create_client(
+            Trigger,
+            "/data_collection/start",
+            callback_group=self.control_callback_group,
+        )
+        self.data_stop_client = self.create_client(
+            Trigger,
+            "/data_collection/stop",
+            callback_group=self.control_callback_group,
+        )
         self.data_reject_client = self.create_client(
-            Trigger, "/data_collection/reject"
+            Trigger,
+            "/data_collection/reject",
+            callback_group=self.control_callback_group,
         )
         self.limit_recovery_client = self.create_client(
-            LimitRecovery, "/limit_recovery"
+            LimitRecovery,
+            "/limit_recovery",
+            callback_group=self.control_callback_group,
         )
-        self.create_subscription(Joy, self.joy_topic, self._on_joy, 10)
-        self.create_subscription(DobotState, "/dobot_state", self._on_dobot_state, 10)
-        self.create_subscription(JointState, "/joint_states", self._on_joint_state, 10)
+        latest_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+        )
         self.create_subscription(
-            GripperStatus, "/gripper_state", self._on_gripper_status, 10
+            Joy,
+            self.joy_topic,
+            self._on_joy,
+            latest_qos,
+            callback_group=self.control_callback_group,
+        )
+        self.create_subscription(
+            DobotState,
+            "/dobot_state",
+            self._on_dobot_state,
+            latest_qos,
+        )
+        self.create_subscription(
+            JointState,
+            "/joint_states",
+            self._on_joint_state,
+            latest_qos,
+        )
+        self.create_subscription(
+            GripperStatus,
+            "/gripper_state",
+            self._on_gripper_status,
+            latest_qos,
         )
         self.create_subscription(
             CartesianServoCommand,
@@ -216,7 +292,11 @@ class JoyTeleopNode(Node):
         self.action_pub = self.create_publisher(
             TeleopAction, "/joy/teleop_action", 10
         )
-        self.create_timer(0.1, self._watchdog)
+        self.create_timer(
+            0.1,
+            self._watchdog,
+            callback_group=self.control_callback_group,
+        )
         self.create_timer(0.05, self._publish_action)
         self.get_logger().info(
             "joy teleop ready: "
@@ -808,6 +888,7 @@ class JoyTeleopNode(Node):
         if self.active_gripper_axis is not None:
             self._stop_gripper_motion(self.active_gripper_axis)
         self.active_gripper_axis = requested_axis
+        self.gripper_stop_pending = False
         self.gripper_action = requested_axis
         target = (
             self.gripper_min_opening_mm
@@ -817,6 +898,13 @@ class JoyTeleopNode(Node):
         self._move_gripper(target, f"gripper jog {requested_axis}", allow_busy=True)
 
     def _toggle_gripper(self):
+        requested_at = time.monotonic()
+        self._publish_diagnostic(
+            {
+                "event": "gripper_toggle_pressed",
+                "busy": bool(self.gripper_busy),
+            }
+        )
         opening = self.latest_gripper_opening_mm
         if opening is None:
             self._request_gripper_state(None)
@@ -827,7 +915,11 @@ class JoyTeleopNode(Node):
         else:
             target = self.gripper_min_opening_mm
             self.gripper_action = "close"
-        self._move_gripper(target, "gripper toggle")
+        self._move_gripper(
+            target,
+            "gripper toggle",
+            requested_at=requested_at,
+        )
 
     def _request_gripper_state(self, pending_delta):
         if self.gripper_busy:
@@ -887,6 +979,7 @@ class JoyTeleopNode(Node):
 
     def _stop_gripper_motion(self, direction: str = None):
         self.gripper_action = "hold"
+        self.gripper_move_pending = None
         self.gripper_stop_pending = direction or "hold"
         if self.gripper_busy:
             return
@@ -894,8 +987,30 @@ class JoyTeleopNode(Node):
         self.gripper_stop_pending = False
         self._request_gripper_state(f"stop:{pending}")
 
-    def _move_gripper(self, opening_mm: float, label: str, allow_busy: bool = False):
-        if self.gripper_busy and not allow_busy:
+    def _move_gripper(
+        self,
+        opening_mm: float,
+        label: str,
+        allow_busy: bool = False,
+        requested_at: float = None,
+    ):
+        del allow_busy
+        requested_at = requested_at or time.monotonic()
+        if self.gripper_busy:
+            self.gripper_move_pending = (
+                float(opening_mm),
+                str(label),
+                requested_at,
+            )
+            self.latest_gripper_opening_mm = float(opening_mm)
+            self.gripper_target_mm = float(opening_mm)
+            self._publish_diagnostic(
+                {
+                    "event": "gripper_command_queued",
+                    "label": label,
+                    "opening_mm": float(opening_mm),
+                }
+            )
             return
         if not self.gripper_move_client.wait_for_service(timeout_sec=0.1):
             self.get_logger().error("/gripper_move service is not available")
@@ -911,21 +1026,56 @@ class JoyTeleopNode(Node):
         self.gripper_target_mm = float(opening_mm)
         self.gripper_busy = True
         self.last_gripper_command_time = time.monotonic()
+        self._publish_diagnostic(
+            {
+                "event": "gripper_command_sent",
+                "label": label,
+                "opening_mm": float(opening_mm),
+                "button_to_send_ms": _elapsed_ms(
+                    requested_at,
+                    self.last_gripper_command_time,
+                ),
+            }
+        )
         future = self.gripper_move_client.call_async(request)
-        future.add_done_callback(lambda result: self._on_gripper_done(result, label))
+        future.add_done_callback(
+            lambda result: self._on_gripper_done(result, label, requested_at)
+        )
 
-    def _on_gripper_done(self, future, label: str):
+    def _on_gripper_done(self, future, label: str, requested_at: float):
+        finished_at = time.monotonic()
         try:
             response = future.result()
             if response.success:
                 self.latest_gripper_opening_mm = response.opening_mm
-                self.get_logger().info(f"{label} accepted: {response.message}")
+                self.get_logger().info(
+                    f"{label} accepted in "
+                    f"{_elapsed_ms(requested_at, finished_at):.1f} ms: "
+                    f"{response.message}"
+                )
             else:
                 self.get_logger().error(f"{label} rejected: {response.message}")
+            self._publish_diagnostic(
+                {
+                    "event": "gripper_command_response",
+                    "label": label,
+                    "success": bool(response.success),
+                    "roundtrip_ms": _elapsed_ms(requested_at, finished_at),
+                }
+            )
         except Exception as exc:  # pragma: no cover - ROS callback safety
             self.get_logger().error(f"{label} service failed: {exc}")
         finally:
             self.gripper_busy = False
+            if self.gripper_move_pending is not None:
+                opening_mm, pending_label, pending_at = self.gripper_move_pending
+                self.gripper_move_pending = None
+                self._move_gripper(
+                    opening_mm,
+                    pending_label,
+                    requested_at=pending_at,
+                )
+                return
             if self.gripper_stop_pending and self.active_gripper_axis is None:
                 pending = self.gripper_stop_pending
                 self.gripper_stop_pending = False
@@ -1115,12 +1265,16 @@ def _elapsed_ms(start: float, end: float) -> float:
 def main(args=None):
     rclpy.init(args=args)
     node = JoyTeleopNode()
+    executor = MultiThreadedExecutor(num_threads=3)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
+        executor.remove_node(node)
         node.destroy_node()
+        executor.shutdown()
         if rclpy.ok():
             rclpy.shutdown()
 

@@ -341,11 +341,22 @@ make data-status
 时，驱动会进入安全保持或停止控制流；通信故障和其它运动模式切换会重建运动连接。
 普通移动、MoveJog、拖拽、示教回放和限位恢复与活动的 ServoP 流互斥。
 
+手柄和 ServoP 命令通道只保留最新一条输入，旧摇杆消息不会排队补发。ServoP 目标仍
+以 33 Hz 发送，`/cartesian_servo/applied` 以 20 Hz 发布供诊断和 10 Hz 数据采集使用，
+不会降低机械臂控制频率。运行日志中的 `Cartesian ServoP timing` 应接近 33 Hz，
+`mean_dt` 应接近 30.3 ms；反复出现 `command watchdog` 或明显增大的 `max_dt` 表示
+工控机调度或通信仍未按周期运行，应先停止同机的高负载训练和重复相机进程。
+
 Y 和 RB 会先停止当前运动，再调用 `/enable_robot`、`/disable_robot`、`/drag_start`
 或 `/drag_stop`，终端日志会打印 accepted/rejected。AG 夹爪 Modbus 手册没有提供运动
 急停寄存器，LT/RT 松手停止是通过读取 `0x0202` 实时位置后写入新的 `0x0103` 保持
 目标来模拟；若仍有轻微反弹或拖尾，可调整 `JOY_GRIPPER_STOP_LEAD_MM`。若系统没有
 `joy_node`，先安装 ROS2 Humble 的 `joy` 包。
+
+A 键夹爪命令不会在上一条命令忙碌时静默丢弃，而是保留最后一次目标并在通道可用时
+立即发送。日志中的 `gripper toggle accepted in ... ms` 是从按键到服务返回的总时间，
+`gripper_move accepted in ... ms` 是驱动写入末端寄存器的时间，可用来区分手柄调度延迟
+和夹爪 Modbus 通信延迟。
 
 夹爪首次从未夹持变为 `object_detected=true` 或 `grip_state=2` 时，teleop 会向 `/joy/set_feedback` 发布一条 `sensor_msgs/msg/JoyFeedback` 短震动。夹爪灯变绿但没有震动时检查：
 
