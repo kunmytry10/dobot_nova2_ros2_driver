@@ -50,6 +50,8 @@ def generate_launch_description():
             DeclareLaunchArgument("toggle_drag_button_index", default_value="5"),
             DeclareLaunchArgument("clear_error_button_index", default_value="2"),
             DeclareLaunchArgument("deadzone", default_value="0.25"),
+            DeclareLaunchArgument("control_mode", default_value="move_jog"),
+            DeclareLaunchArgument("response_exponent", default_value="1.2"),
             DeclareLaunchArgument("coord_type", default_value="0"),
             DeclareLaunchArgument("x_axis_index", default_value="1"),
             DeclareLaunchArgument("y_axis_index", default_value="0"),
@@ -132,6 +134,7 @@ def generate_launch_description():
                             LaunchConfiguration("max_image_skew_sec"),
                             value_type=float,
                         ),
+                        "control_mode": LaunchConfiguration("control_mode"),
                     }
                 ],
                 condition=IfCondition(LaunchConfiguration("start_data_collection")),
@@ -168,6 +171,10 @@ def generate_launch_description():
                         ),
                         "joy.deadzone": ParameterValue(
                             LaunchConfiguration("deadzone"), value_type=float
+                        ),
+                        "joy.control_mode": LaunchConfiguration("control_mode"),
+                        "joy.response_exponent": ParameterValue(
+                            LaunchConfiguration("response_exponent"), value_type=float
                         ),
                         "joy.x_axis_index": ParameterValue(
                             LaunchConfiguration("x_axis_index"), value_type=int

@@ -20,13 +20,22 @@ STATE_NAMES = [
     "tcp_rz_deg",
     "gripper_opening_mm",
 ]
-ACTION_NAMES = [
+MOVE_JOG_ACTION_NAMES = [
     "jog_x_normalized",
     "jog_y_normalized",
     "jog_z_normalized",
     "jog_rx_normalized",
     "jog_ry_normalized",
     "jog_rz_normalized",
+    "gripper_target_normalized",
+]
+SERVO_P_ACTION_NAMES = [
+    "cartesian_vx_normalized",
+    "cartesian_vy_normalized",
+    "cartesian_vz_normalized",
+    "cartesian_wx_normalized",
+    "cartesian_wy_normalized",
+    "cartesian_wz_normalized",
     "gripper_target_normalized",
 ]
 
@@ -76,7 +85,7 @@ def _read_rgb(path: Path):
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
 
-def _features(wrist_image, global_image):
+def _features(wrist_image, global_image, action_names):
     def video_feature(image):
         height, width, channels = image.shape
         return {
@@ -93,8 +102,8 @@ def _features(wrist_image, global_image):
         },
         "action": {
             "dtype": "float32",
-            "shape": (len(ACTION_NAMES),),
-            "names": ACTION_NAMES,
+            "shape": (len(action_names),),
+            "names": list(action_names),
         },
         "observation.images.wrist": video_feature(wrist_image),
         "observation.images.global": video_feature(global_image),
@@ -117,6 +126,10 @@ def export_episode(raw_episode, dataset_root, repo_id, fps):
     raw_episode = Path(raw_episode).resolve()
     dataset_root = Path(dataset_root).resolve()
     metadata = _load_json(raw_episode / "metadata.json")
+    control_mode = str(metadata.get("control_mode", "move_jog")).strip().lower()
+    action_names = (
+        SERVO_P_ACTION_NAMES if control_mode == "servo_p" else MOVE_JOG_ACTION_NAMES
+    )
     steps = _load_steps(raw_episode / "steps.jsonl")
     if not metadata.get("acquisition_complete", metadata.get("complete")):
         raise ValueError("raw episode is incomplete")
@@ -151,6 +164,12 @@ def export_episode(raw_episode, dataset_root, repo_id, fps):
             raise ValueError(
                 f"existing LeRobot dataset fps={dataset.fps}, requested fps={fps}"
             )
+        existing_names = list(dataset.features["action"].get("names") or [])
+        if existing_names != action_names:
+            raise ValueError(
+                "existing dataset action semantics do not match raw episode "
+                f"control_mode={control_mode}"
+            )
     else:
         if dataset_root.is_dir():
             if any(dataset_root.iterdir()):
@@ -163,7 +182,7 @@ def export_episode(raw_episode, dataset_root, repo_id, fps):
             root=dataset_root,
             fps=int(fps),
             robot_type="dobot_nova2_joystick",
-            features=_features(first_wrist, first_global),
+            features=_features(first_wrist, first_global, action_names),
             use_videos=True,
             image_writer_threads=2,
         )
@@ -212,6 +231,7 @@ def export_episode(raw_episode, dataset_root, repo_id, fps):
         "episode_index": episode_index,
         "frames": len(steps),
         "task": task,
+        "control_mode": control_mode,
     }
 
 

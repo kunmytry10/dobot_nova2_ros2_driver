@@ -1,5 +1,9 @@
 import sys
+import socket
+
+import numpy as np
 from pathlib import Path
+from types import SimpleNamespace
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 # Tests are run from the workspace root before the package is installed.
@@ -13,6 +17,7 @@ from dobot_ros2.controller import (  # noqa: E402
     _format_error_details,
 )
 from dobot_ros2.gripper import DhAgGripper, DobotModbusAgGripper, GripperConfig, _crc  # noqa: E402
+from dobot_api import DobotApiFeedBack, MyType  # noqa: E402
 
 
 def test_four_motion_services_are_registered_with_expected_names():
@@ -73,6 +78,223 @@ def test_move_jog_maps_to_move_port_command():
     assert stop.success
     assert calls[0][0] == "MoveJog(X+,CoordType=0,User=0,Tool=0)"
     assert calls[1][0] == "MoveJog()"
+
+
+def test_servo_p_maps_to_documented_command_and_drains_reply():
+    controller = DobotController(ControllerConfig())
+    calls = []
+    controller.connect = lambda: None
+    controller._send_move_streaming = lambda command: (
+        calls.append(command) or f"0,{{}},{command};"
+    )
+
+    result = controller.servo_p([100, 200, 300, 10, 20, 30])
+
+    assert result.success
+    assert calls == [
+        "ServoP(100.000000,200.000000,300.000000,10.000000,20.000000,30.000000)"
+    ]
+
+
+def test_servo_p_accepts_documented_no_reply_behavior():
+    controller = DobotController(ControllerConfig())
+    controller.connect = lambda: None
+    controller._send_move_streaming = lambda command: ""
+
+    result = controller.servo_p([100, 200, 300, 10, 20, 30])
+
+    assert result.success
+    assert result.raw_reply == ""
+
+
+def test_streaming_send_drains_replies_without_waiting():
+    class FakeSocket:
+        def __init__(self):
+            self.timeout = None
+            self.replies = [
+                b"0,{},previous;",
+                BlockingIOError(),
+                b"0,{},current;",
+                BlockingIOError(),
+            ]
+            self.sent = []
+
+        def gettimeout(self):
+            return self.timeout
+
+        def settimeout(self, timeout):
+            self.timeout = timeout
+
+        def setblocking(self, blocking):
+            self.timeout = None if blocking else 0.0
+
+        def recv(self, size):
+            del size
+            value = self.replies.pop(0)
+            if isinstance(value, Exception):
+                raise value
+            return value
+
+        def sendall(self, data):
+            self.sent.append(data)
+
+    controller = DobotController(ControllerConfig())
+    socket_obj = FakeSocket()
+    controller.move_client = SimpleNamespace(socket_dobot=socket_obj)
+
+    reply = controller._send_move_streaming("ServoP(1,2,3,4,5,6)")
+
+    assert reply == "0,{},previous;0,{},current;"
+    assert socket_obj.sent == [b"ServoP(1,2,3,4,5,6)"]
+    assert socket_obj.timeout is None
+    assert controller._move_channel_streaming
+
+
+def test_end_servo_stream_reconnects_move_channel():
+    controller = DobotController(ControllerConfig())
+    calls = []
+    controller._reconnect_move_client = lambda: calls.append("reconnect")
+
+    controller.end_servo_stream()
+
+    assert calls == ["reconnect"]
+
+
+def test_move_socket_disables_nagle_for_servo_streaming():
+    class FakeSocket:
+        def __init__(self):
+            self.options = []
+
+        def setsockopt(self, level, option, value):
+            self.options.append((level, option, value))
+
+    socket_obj = FakeSocket()
+    controller = DobotController(ControllerConfig())
+
+    controller._configure_move_client(SimpleNamespace(socket_dobot=socket_obj))
+
+    assert socket_obj.options == [(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)]
+
+
+def test_dashboard_and_move_channels_use_independent_command_locks():
+    controller = DobotController(ControllerConfig())
+    calls = []
+    controller.dashboard = object()
+    controller.move_client = object()
+    controller._send = lambda client, command, timeout, lock: calls.append(
+        (client, command, timeout, lock)
+    ) or "0,{},ok;"
+
+    controller._send_dashboard("RobotMode()", 1.0)
+    controller._send_move("MoveJog()", 2.0)
+
+    assert controller._dashboard_command_lock is not controller._move_command_lock
+    assert calls == [
+        (
+            controller.dashboard,
+            "RobotMode()",
+            1.0,
+            controller._dashboard_command_lock,
+        ),
+        (
+            controller.move_client,
+            "MoveJog()",
+            2.0,
+            controller._move_command_lock,
+        ),
+    ]
+
+
+def test_feedback_reader_reassembles_fragmented_tcp_packet():
+    class FakeSocket:
+        def __init__(self, chunks):
+            self.chunks = list(chunks)
+
+        def setblocking(self, blocking):
+            assert blocking
+
+        def recv(self, size):
+            del size
+            return self.chunks.pop(0)
+
+        def close(self):
+            pass
+
+    packet = np.zeros(1, dtype=MyType)
+    packet["robot_mode"] = 5
+    payload = packet.tobytes()
+    client = DobotApiFeedBack.__new__(DobotApiFeedBack)
+    client.socket_dobot = FakeSocket([payload[:137], payload[137:]])
+    client._feedback_buffer = bytearray()
+
+    result = client.feedBackData()
+
+    assert int(result["robot_mode"][0]) == 5
+    assert client._feedback_buffer == bytearray()
+
+
+def test_feedback_reader_preserves_additional_complete_packet():
+    class FakeSocket:
+        def __init__(self, payload):
+            self.payload = payload
+            self.recv_count = 0
+
+        def setblocking(self, blocking):
+            assert blocking
+
+        def recv(self, size):
+            del size
+            self.recv_count += 1
+            if self.recv_count > 1:
+                raise AssertionError("buffered packet should not read the socket again")
+            return self.payload
+
+        def close(self):
+            pass
+
+    first = np.zeros(1, dtype=MyType)
+    first["robot_mode"] = 5
+    second = np.zeros(1, dtype=MyType)
+    second["robot_mode"] = 7
+    client = DobotApiFeedBack.__new__(DobotApiFeedBack)
+    client.socket_dobot = FakeSocket(first.tobytes() + second.tobytes())
+    client._feedback_buffer = bytearray()
+
+    assert int(client.feedBackData()["robot_mode"][0]) == 5
+    assert int(client.feedBackData()["robot_mode"][0]) == 7
+    assert client.socket_dobot.recv_count == 1
+
+
+def test_normal_servo_stop_keeps_channel_for_immediate_resume():
+    controller = DobotController(ControllerConfig())
+    calls = []
+    controller._move_channel_streaming = True
+    controller._reconnect_move_client = lambda: calls.append("reconnect")
+
+    controller.end_servo_stream(reset_channel=False)
+
+    assert calls == []
+    assert controller._move_channel_streaming
+
+
+def test_request_reply_command_resets_streaming_channel_once():
+    controller = DobotController(ControllerConfig())
+    calls = []
+    controller._move_channel_streaming = True
+
+    def fake_reconnect():
+        calls.append("reconnect")
+        controller._move_channel_streaming = False
+
+    controller._reconnect_move_client = fake_reconnect
+    controller._send_move = lambda command, timeout: calls.append(
+        (command, timeout)
+    ) or "0,{},MoveJog();"
+
+    reply = controller._send_move_with_reconnect("MoveJog()", 1.0)
+
+    assert reply == "0,{},MoveJog();"
+    assert calls == ["reconnect", ("MoveJog()", 1.0)]
 
 
 def test_emergency_stop_maps_to_dashboard_command():

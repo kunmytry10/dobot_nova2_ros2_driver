@@ -3,7 +3,12 @@ import time
 from math import degrees
 
 import rclpy
-from dobot_interfaces.msg import DobotState, GripperStatus, TeleopAction
+from dobot_interfaces.msg import (
+    CartesianServoCommand,
+    DobotState,
+    GripperStatus,
+    TeleopAction,
+)
 from dobot_interfaces.srv import (
     GripperCommand,
     GripperState,
@@ -11,6 +16,7 @@ from dobot_interfaces.srv import (
     LimitRecovery,
 )
 from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState, Joy, JoyFeedback
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
@@ -18,6 +24,7 @@ from std_srvs.srv import Trigger
 from dobot_joy.joy_common import (
     JoyMapping,
     axis_to_jog,
+    axes_to_cartesian_velocity,
     button_pressed,
     clamp,
     deadman_pressed,
@@ -68,6 +75,16 @@ class JoyTeleopNode(Node):
             self.get_parameter("joy.limit_recovery_release_timeout_sec").value
         )
         self.coord_type = int(self.get_parameter("joy.coord_type").value)
+        self.control_mode = str(
+            self.get_parameter("joy.control_mode").value
+        ).strip().lower()
+        if self.control_mode not in {"move_jog", "servo_p"}:
+            raise ValueError("joy.control_mode must be move_jog or servo_p")
+        if self.control_mode == "servo_p" and self.coord_type != 0:
+            raise ValueError("servo_p control currently requires joy.coord_type=0")
+        self.response_exponent = float(
+            self.get_parameter("joy.response_exponent").value
+        )
         self.user = int(self.get_parameter("joy.user").value)
         self.tool = int(self.get_parameter("joy.tool").value)
         self.watchdog_timeout_sec = float(
@@ -134,6 +151,7 @@ class JoyTeleopNode(Node):
         )
 
         self.current_axis = None
+        self.current_cartesian_action = [0.0] * 6
         self.last_joy_time = 0.0
         self.latest_state = None
         self.latest_joint_degrees = None
@@ -157,6 +175,14 @@ class JoyTeleopNode(Node):
         self.limit_recovery_released = False
         self.limit_recovery_released_at = 0.0
         self.jog_client = self.create_client(JogCommand, "/move_jog")
+        servo_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+        )
+        self.servo_command_pub = self.create_publisher(
+            CartesianServoCommand, "/cartesian_servo/command", servo_qos
+        )
         self.estop_client = self.create_client(Trigger, "/emergency_stop")
         self.clear_error_client = self.create_client(Trigger, "/clear_error")
         self.enable_robot_client = self.create_client(Trigger, "/enable_robot")
@@ -179,6 +205,12 @@ class JoyTeleopNode(Node):
         self.create_subscription(
             GripperStatus, "/gripper_state", self._on_gripper_status, 10
         )
+        self.create_subscription(
+            CartesianServoCommand,
+            "/cartesian_servo/applied",
+            self._on_cartesian_servo_applied,
+            servo_qos,
+        )
         self.rumble_pub = self.create_publisher(JoyFeedback, self.rumble_topic, 10)
         self.diagnostics_pub = self.create_publisher(String, self.diagnostics_topic, 10)
         self.action_pub = self.create_publisher(
@@ -189,7 +221,8 @@ class JoyTeleopNode(Node):
         self.get_logger().info(
             "joy teleop ready: "
             f"topic={self.joy_topic}, deadman_button={self.deadman_button_index}, "
-            f"coord_type={self.coord_type}, deadzone={self.mapping.deadzone}, "
+            f"control_mode={self.control_mode}, coord_type={self.coord_type}, "
+            f"deadzone={self.mapping.deadzone}, "
             f"gripper_step={self.mapping.gripper_step_mm}mm"
         )
 
@@ -230,6 +263,8 @@ class JoyTeleopNode(Node):
         self.declare_parameter("joy.lt_axis_index", 2)
         self.declare_parameter("joy.rt_axis_index", 5)
         self.declare_parameter("joy.deadzone", 0.25)
+        self.declare_parameter("joy.control_mode", "move_jog")
+        self.declare_parameter("joy.response_exponent", 1.2)
         self.declare_parameter("joy.gripper_step_mm", 2.0)
         self.declare_parameter("joy.gripper_min_opening_mm", 0.0)
         self.declare_parameter("joy.gripper_max_opening_mm", 95.0)
@@ -279,6 +314,11 @@ class JoyTeleopNode(Node):
         if gripped and not self.latest_gripper_gripped:
             self._start_rumble()
         self.latest_gripper_gripped = gripped
+
+    def _on_cartesian_servo_applied(self, msg: CartesianServoCommand):
+        if self.control_mode != "servo_p":
+            return
+        self.current_cartesian_action = list(msg.normalized_velocity)
 
     def _on_joy(self, msg: Joy):
         joy_time = time.monotonic()
@@ -369,6 +409,16 @@ class JoyTeleopNode(Node):
             self.latest_buttons = list(msg.buttons)
             return
 
+        if self.control_mode == "servo_p":
+            command = axes_to_cartesian_velocity(
+                msg.axes,
+                self.mapping,
+                response_exponent=self.response_exponent,
+            )
+            self._publish_cartesian_servo_command(command, active=True)
+            self.latest_buttons = list(msg.buttons)
+            return
+
         axis = axis_to_jog(msg.axes, self.mapping)
         if axis is None:
             self._stop_jog()
@@ -450,6 +500,11 @@ class JoyTeleopNode(Node):
         )
 
     def _stop_jog(self, wait: bool = False, force: bool = False):
+        if self.control_mode == "servo_p":
+            self._publish_cartesian_servo_command([0.0] * 6, active=False)
+            self.current_cartesian_action = [0.0] * 6
+            self.current_axis = None
+            return
         start_time = time.monotonic()
         previous_axis = self.current_axis
         if self.current_axis is None and not force and not wait:
@@ -477,6 +532,18 @@ class JoyTeleopNode(Node):
         if wait:
             rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
 
+    def _publish_cartesian_servo_command(self, velocity, active: bool):
+        message = CartesianServoCommand()
+        message.stamp = self.get_clock().now().to_msg()
+        message.normalized_velocity = list(velocity)
+        message.active = bool(active)
+        message.deadman = bool(self.teleop_deadman and active)
+        message.coord_type = int(self.coord_type)
+        message.user = int(self.user)
+        message.tool = int(self.tool)
+        message.status = "requested" if active else "inactive"
+        self.servo_command_pub.publish(message)
+
     def _watchdog(self):
         self._update_rumble()
         if (
@@ -488,6 +555,17 @@ class JoyTeleopNode(Node):
                 "limit recovery release timeout; locking brake"
             )
             self._lock_limit_recovery()
+        if self.control_mode == "servo_p":
+            if (
+                self.teleop_deadman
+                and self.last_joy_time > 0.0
+                and time.monotonic() - self.last_joy_time
+                > self.watchdog_timeout_sec
+            ):
+                self.get_logger().warn("joy watchdog timeout; stopping ServoP")
+                self.teleop_deadman = False
+                self._stop_jog(force=True)
+            return
         if self.current_axis is None:
             return
         if time.monotonic() - self.last_joy_time > self.watchdog_timeout_sec:
@@ -898,8 +976,12 @@ class JoyTeleopNode(Node):
         message = TeleopAction()
         message.stamp = self.get_clock().now().to_msg()
         message.axis_id = str(self.current_axis or "")
-        message.cartesian_jog = jog_axis_to_action(self.current_axis)
-        message.motion_active = self.current_axis is not None
+        message.cartesian_jog = (
+            list(self.current_cartesian_action)
+            if self.control_mode == "servo_p"
+            else jog_axis_to_action(self.current_axis)
+        )
+        message.motion_active = any(abs(value) > 1e-6 for value in message.cartesian_jog)
         message.deadman = bool(self.teleop_deadman)
         message.coord_type = int(self.coord_type)
         message.user = int(self.user)

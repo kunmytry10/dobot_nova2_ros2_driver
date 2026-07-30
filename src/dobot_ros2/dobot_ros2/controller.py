@@ -1,5 +1,6 @@
 import json
 import re
+import socket
 import threading
 import time
 from dataclasses import dataclass, field
@@ -299,13 +300,18 @@ class DobotController:
         self._state = FeedbackState()
         self._state_lock = threading.Lock()
         self._client_lock = threading.RLock()
-        self._command_lock = threading.Lock()
+        self._dashboard_command_lock = threading.Lock()
+        self._move_command_lock = threading.Lock()
         self._teach_lock = threading.RLock()
         self._teach_thread: Optional[threading.Thread] = None
         self._teach_recording = False
         self._teach_name = ""
         self._teach_started_at = 0.0
         self._teach_points: List[dict] = []
+        # ServoP replies are optional and may arrive after the send call.  Keep
+        # the channel in streaming mode across normal deadman releases, then
+        # reset it lazily before the next request/reply motion command.
+        self._move_channel_streaming = False
 
     def connect(self) -> None:
         with self._client_lock:
@@ -317,6 +323,7 @@ class DobotController:
             try:
                 dashboard = DobotApiDashboard(self.config.robot_ip, self.config.dashboard_port)
                 move_client = DobotApiMove(self.config.robot_ip, self.config.move_port)
+                self._configure_move_client(move_client)
             except Exception:
                 for client in (dashboard, move_client):
                     if client is not None:
@@ -352,6 +359,7 @@ class DobotController:
             self.dashboard = None
             self.move_client = None
             self._feedback_client = None
+            self._move_channel_streaming = False
 
     def is_connected(self) -> bool:
         return self.dashboard is not None and self.move_client is not None
@@ -413,6 +421,36 @@ class DobotController:
             )
         except Exception as exc:
             return DashboardResult(False, message=f"move_jog failed: {exc}")
+
+    def servo_p(self, pose: Sequence[float]) -> DashboardResult:
+        """Send one Cartesian target and drain an optional controller reply."""
+        values = list(pose[:6])
+        if len(values) != 6:
+            raise ValueError("ServoP requires exactly six TCP pose values")
+        self.connect()
+        command = f"ServoP({_format_values(values)})"
+        raw_reply = self._send_move_streaming(command)
+        error_id = _reply_error_id(raw_reply)
+        success = not raw_reply.strip() or error_id == 0
+        return DashboardResult(
+            success=success,
+            error_id=error_id if error_id is not None else -1,
+            message=f"servo_p {'accepted' if success else 'rejected'}",
+            raw_reply=raw_reply,
+        )
+
+    def end_servo_stream(self, reset_channel: bool = True) -> None:
+        """Finish ServoP use, optionally resetting the motion channel now.
+
+        A normal deadman release keeps the existing socket so the next ServoP
+        stream can start immediately.  Request/reply commands still reset the
+        channel lazily because a delayed ServoP reply must never be consumed as
+        their response.
+        """
+        if not reset_channel:
+            return
+        with self._client_lock:
+            self._reconnect_move_client()
 
     def teach_start(self, name: str = "", overwrite: bool = False) -> TeachResult:
         with self._teach_lock:
@@ -1341,7 +1379,12 @@ class DobotController:
     def _send_dashboard(self, command: str, timeout_sec: float) -> str:
         if self.dashboard is None:
             raise RuntimeError("dashboard client is not connected")
-        return self._send(self.dashboard, command, timeout_sec)
+        return self._send(
+            self.dashboard,
+            command,
+            timeout_sec,
+            self._dashboard_command_lock,
+        )
 
     def _send_dashboard_with_reconnect(self, command: str, timeout_sec: float) -> str:
         try:
@@ -1370,9 +1413,20 @@ class DobotController:
     def _send_move(self, command: str, timeout_sec: float) -> str:
         if self.move_client is None:
             raise RuntimeError("move client is not connected")
-        return self._send(self.move_client, command, timeout_sec)
+        return self._send(
+            self.move_client,
+            command,
+            timeout_sec,
+            self._move_command_lock,
+        )
 
     def _send_move_with_reconnect(self, command: str, timeout_sec: float) -> str:
+        if self._move_channel_streaming:
+            self._log(
+                "resetting ServoP streaming channel before request/reply "
+                f"command: {command.split('(', 1)[0]}"
+            )
+            self._reconnect_move_client()
         try:
             reply = self._send_move(command, timeout_sec)
         except Exception as exc:
@@ -1390,8 +1444,14 @@ class DobotController:
             return retry_reply
         raise RuntimeError(f"empty move reply after reconnect for {command}")
 
-    def _send(self, client, command: str, timeout_sec: float) -> str:
-        with self._command_lock:
+    def _send(
+        self,
+        client,
+        command: str,
+        timeout_sec: float,
+        command_lock: threading.Lock,
+    ) -> str:
+        with command_lock:
             socket_obj = getattr(client, "socket_dobot", None)
             old_timeout = None
             if socket_obj not in (None, 0):
@@ -1412,6 +1472,15 @@ class DobotController:
                 except Exception:
                     pass
             self.move_client = DobotApiMove(self.config.robot_ip, self.config.move_port)
+            self._configure_move_client(self.move_client)
+            self._move_channel_streaming = False
+
+    @staticmethod
+    def _configure_move_client(move_client) -> None:
+        socket_obj = getattr(move_client, "socket_dobot", None)
+        if socket_obj in (None, 0):
+            return
+        socket_obj.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
     def _reconnect_dashboard_client(self) -> None:
         with self._client_lock:
@@ -1644,13 +1713,52 @@ class DobotController:
         )
 
     def _send_move_without_reply(self, command: str) -> None:
-        with self._command_lock:
+        with self._move_command_lock:
             if self.move_client is None:
                 raise RuntimeError("move client is not connected")
             socket_obj = getattr(self.move_client, "socket_dobot", None)
             if socket_obj in (None, 0):
                 raise RuntimeError("move socket is not connected")
             socket_obj.sendall(str.encode(command, "utf-8"))
+            self._move_channel_streaming = True
+
+    def _send_move_streaming(self, command: str) -> str:
+        """Drain optional replies and send a streaming command without waiting."""
+        with self._move_command_lock:
+            if self.move_client is None:
+                raise RuntimeError("move client is not connected")
+            socket_obj = getattr(self.move_client, "socket_dobot", None)
+            if socket_obj in (None, 0):
+                raise RuntimeError("move socket is not connected")
+            old_timeout = socket_obj.gettimeout()
+            try:
+                socket_obj.setblocking(False)
+                replies = []
+                while True:
+                    try:
+                        reply = socket_obj.recv(1024)
+                    except BlockingIOError:
+                        break
+                    if not reply:
+                        raise ConnectionError("move socket closed by controller")
+                    replies.append(_as_text(reply))
+            finally:
+                socket_obj.settimeout(old_timeout)
+            socket_obj.sendall(str.encode(command, "utf-8"))
+            self._move_channel_streaming = True
+            try:
+                socket_obj.setblocking(False)
+                while True:
+                    try:
+                        reply = socket_obj.recv(1024)
+                    except BlockingIOError:
+                        break
+                    if not reply:
+                        raise ConnectionError("move socket closed by controller")
+                    replies.append(_as_text(reply))
+            finally:
+                socket_obj.settimeout(old_timeout)
+            return "".join(replies)
 
     def _save_trajectory(self, name: str, points: Sequence[dict], path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

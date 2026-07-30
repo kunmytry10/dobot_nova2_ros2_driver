@@ -67,6 +67,7 @@ def test_makefile_exposes_joy_workflows():
     assert "jog-stop:" in source
     assert "JOY_TOPIC ?= /joy" in source
     assert "JOY_DEADMAN_BUTTON ?= 4" in source
+    assert "JOY_CONTROL_MODE ?= move_jog" in source
     assert "JOY_X_AXIS_INDEX ?= 1" in source
     assert "JOY_Y_AXIS_INDEX ?= 0" in source
     assert "JOY_RX_AXIS_INDEX ?= 6" in source
@@ -107,6 +108,9 @@ def test_makefile_exposes_joy_workflows():
     assert "data-reject:" in source
     assert "data-task:" in source
     assert "data-validate:" in source
+
+    launch = (PACKAGE_ROOT / "launch" / "joy_teleop.launch.py").read_text()
+    assert 'DeclareLaunchArgument("control_mode", default_value="move_jog")' in launch
 
 
 def test_joy_teleop_has_robot_enable_and_drag_toggles():

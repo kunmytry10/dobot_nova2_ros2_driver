@@ -174,11 +174,38 @@ make keyboard-jog KEYBOARD_DEV:=/dev/input/by-id/usb-xxx-event-kbd
 
 如果没有权限读取 input 设备，需要把当前用户加入 `input` 组后重新登录，或临时用有权限的终端启动。
 
-手柄控制使用官方 `MoveJog` 点动接口，适合“推杆持续动、回中停止”：
+手柄控制提供两种模式：
+
+- `move_jog`：默认稳定模式。一次只选择输入幅值最大的轴，由控制器内部持续点动，
+  适合日常操作和排障，不支持斜线或多个 TCP 轴同时运动。
+- `servo_p`：多轴连续比例模式。以 33 Hz 发送官方 `ServoP` 六维 TCP 目标，支持
+  X/Y 斜线、平移与升降、平移与旋转等组合输入。
+
+首次验证时关闭相机和数据采集，减少其它进程对控制周期的影响。两种模式分别使用：
 
 ```bash
-make joy
+# 稳定单轴模式
+JOY_CONTROL_MODE=move_jog \
+SYSTEM_START_CAMERA=false \
+SYSTEM_START_DATA_COLLECTION=false \
+make system
+
+# 多轴连续模式
+JOY_CONTROL_MODE=servo_p \
+SYSTEM_START_CAMERA=false \
+SYSTEM_START_DATA_COLLECTION=false \
+make system
 ```
+
+完成实机控制验证后，直接运行 `make system` 会按默认 `move_jog` 模式同时启动
+bringup、双相机、手柄和数据采集；需要使用多轴控制采集数据时运行：
+
+```bash
+JOY_CONTROL_MODE=servo_p make system
+```
+
+`make joy` 只用于连接已经启动的机器人 driver；它会启动 `joy_node`、手柄 teleop
+和数据采集节点，但不会替代 `make driver`、`make bringup` 或 `make system`。
 
 ### 工控机启动与检查
 
@@ -204,6 +231,10 @@ make system ROBOT_MODE=external    # 连接已经由其他进程启动的机械�
 ```
 
 每次运行自动生成 `logs/run_YYYYMMDD_HHMMSS_PID/`。终端强制启用彩色日志级别，`launch.log` 原样保存带 ANSI 颜色的完整输出；`manifest.json` 保存版本、任务、原始/LeRobot 目录、`repo_id` 和启动配置；`events.jsonl` 保存机器人状态、夹爪初始化、手柄动作和采集审核结果；`health.jsonl` 每秒保存机器人/相机/手柄就绪状态、两路实际帧率和已发现节点。
+
+`make system` 使用进程锁防止同一用户重复启动。若提示 `another make system is already
+running`，应回到原终端继续使用或先用 `Ctrl+C` 正常结束原系统；不要并行启动两套
+相机驱动，否则 RealSense 可能在内核层反复断开重连。
 
 `nodes.jsonl` 聚合 `/rosout`，每条明确记录节点名、级别、时间、消息和源码位置；`nodes/<节点名>.log` 按节点拆分，日常排障优先查看这里。`ros/` 是 ROS2 底层日志，Python console entrypoint 会被 rclpy 按解释器进程名写成 `python3_<PID>_<时间>.log`，它不是未知节点，也不是采集数据；保留该目录只是为了底层排障。`make logs-latest` 可定位最近一次运行目录。
 
@@ -248,6 +279,8 @@ make data-status
 | `JOY_TOGGLE_ENABLE_BUTTON` | `3` | enable/disable 切换按钮，默认 Y |
 | `JOY_TOGGLE_DRAG_BUTTON` | `5` | 拖拽模式开关按钮，默认 RB |
 | `JOY_DEADZONE` | `0.25` | 摇杆死区 |
+| `JOY_CONTROL_MODE` | `move_jog` | `move_jog` 为兼容单轴点动；`servo_p` 为六维连续比例控制 |
+| `JOY_RESPONSE_EXPONENT` | `1.2` | `servo_p` 摇杆响应曲线；兼顾中心微调与低延迟响应 |
 | `JOY_COORD_TYPE` | `0` | `MoveJog` 坐标系，`0` 为用户坐标系，`1` 为工具坐标系 |
 | `JOY_AUTOREPEAT_RATE` | `50.0` | `joy_node` 重复发布频率，提高连续点动顺滑度 |
 | `JOY_GRIPPER_INIT` | `true` | 启动手柄控制前先尝试初始化夹爪 |
@@ -299,9 +332,20 @@ make data-status
 | Back 单击并松开 | 第一次：停止并进入待审核；待审核时再次短按：接受并提交 LeRobot |
 | Back 长按 2 秒后松开 | 拒绝当前录制或待审核 episode，不提交 LeRobot，保留原始数据 |
 | Back + Start 长按 3 秒 | 仅在控制器报告单一关节限位报警时进入抱闸恢复；松开任意键立即回抱 |
-| 松开 deadman 或摇杆回中 | `MoveJog()` 停止点动 |
+| 松开 deadman | 立即结束 `MoveJog` 或 `ServoP` 控制流 |
 
-手柄 teleop 同样订阅 `/dobot_state`、`/joint_states` 和 `/gripper_state`。机器人报警、未使能、反馈无效、topic 超时、节点退出或关节接近软限位时，会主动发送 `MoveJog()` 停止点动。Y 和 RB 会先停止当前 jog，再调用 `/enable_robot`、`/disable_robot`、`/drag_start` 或 `/drag_stop`，终端日志会打印 accepted/rejected。AG 夹爪 Modbus 手册没有提供运动急停寄存器，LT/RT 松手停止是通过读取 `0x0202` 实时位置后写入新的 `0x0103` 保持目标来模拟；若仍有轻微反弹或拖尾，可调整 `JOY_GRIPPER_STOP_LEAD_MM`。若系统没有 `joy_node`，先安装 ROS2 Humble 的 `joy` 包。
+`servo_p` 模式会保留六个轴的同时输入，平移向量与旋转向量分别归一化，避免斜推时
+合速度超过限值；驱动端再做加速度斜坡，以 30 mm/s、10 deg/s 的保守上限积分目标。
+`ServoP` 当前只允许 `JOY_COORD_TYPE=0`。机器人报警、未使能、反馈超时、手柄命令
+超过 200 ms 未更新、关节接近软限位、TCP 超出工作空间、松开 LB、急停或节点退出
+时，驱动会进入安全保持或停止控制流；通信故障和其它运动模式切换会重建运动连接。
+普通移动、MoveJog、拖拽、示教回放和限位恢复与活动的 ServoP 流互斥。
+
+Y 和 RB 会先停止当前运动，再调用 `/enable_robot`、`/disable_robot`、`/drag_start`
+或 `/drag_stop`，终端日志会打印 accepted/rejected。AG 夹爪 Modbus 手册没有提供运动
+急停寄存器，LT/RT 松手停止是通过读取 `0x0202` 实时位置后写入新的 `0x0103` 保持
+目标来模拟；若仍有轻微反弹或拖尾，可调整 `JOY_GRIPPER_STOP_LEAD_MM`。若系统没有
+`joy_node`，先安装 ROS2 Humble 的 `joy` 包。
 
 夹爪首次从未夹持变为 `object_detected=true` 或 `grip_state=2` 时，teleop 会向 `/joy/set_feedback` 发布一条 `sensor_msgs/msg/JoyFeedback` 短震动。夹爪灯变绿但没有震动时检查：
 
@@ -369,7 +413,26 @@ data_collection/episode_YYYYMMDD_HHMMSS/
 
 采样使用固定时间槽，不要求所有 episode 具有固定时长。10 Hz episode 的 `frame_slot/t` 必须是 `0/0.0, 1/0.1, 2/0.2...`，采样时刻在图像同步回调中确定，后台 JPEG 写盘耗时不会改变时间戳。相机应以高于 10 Hz 的频率发布，由采集器选择每个时间槽附近的同步图像对；若真的漏掉时间槽，`missed_sample_slots` 会增加，该原始 episode 会保留但不会导入 LeRobot，避免把不连续的真实过程压缩成伪 10 Hz 视频。
 
-主动作顺序固定为 `[X,Y,Z,Rx,Ry,Rz]`；当前 `MoveJog` 不支持摇杆比例速度，因此 `cartesian_jog_normalized` 记录 `-1/0/1` 的固定速率方向，不把摇杆幅度虚构成真实速度。图像通过有界后台队列成对写入；Back 会等待队列清空后再关闭文件。
+主动作顺序固定为 `[X,Y,Z,Rx,Ry,Rz]`。`move_jog` 模式记录 `-1/0/1` 的固定速率
+方向；`servo_p` 模式记录驱动经过死区、响应曲线、限幅和加速度斜坡后实际应用的
+连续归一化速度，允许多个分量同时非零。两种模式 action 语义不同，不可追加到同一个
+LeRobot 数据集；切换到 `servo_p` 后应使用新的 dataset root 和 repo id。图像通过
+有界后台队列成对写入；Back 会等待队列清空后再关闭文件。
+
+首次低速验收先关闭采集，避免测试动作进入正式数据集：
+
+```bash
+JOY_CONTROL_MODE=servo_p JOY_LEROBOT_ENABLED=false make system
+```
+
+实机确认斜线、组合运动、松开 LB 和 B 急停都符合预期后，再使用新的训练集启动：
+
+```bash
+JOY_CONTROL_MODE=servo_p \
+JOY_LEROBOT_DATASET_ROOT="$(pwd)/data_collection/lerobot_tape_pi05_v2" \
+JOY_LEROBOT_REPO_ID="local/dobot_nova2_tape_pi05_v2" \
+make system
+```
 
 原始 sidecar 使用本仓库 `format_version=2`，用于断电恢复、相机内参和 ROS 诊断，不是训练入口。只有第二次短按 Back 接受后，同一 episode 才会追加到以下 LeRobot Dataset v3.0 数据集：
 

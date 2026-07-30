@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import math
 from typing import Optional, Sequence
 
 
@@ -52,6 +53,26 @@ def axis_to_jog(axes: Sequence[float], mapping: JoyMapping) -> Optional[str]:
     return f"{axis_id}{'+' if value > 0.0 else '-'}"
 
 
+def axes_to_cartesian_velocity(
+    axes: Sequence[float],
+    mapping: JoyMapping,
+    response_exponent: float = 1.2,
+):
+    """Return a simultaneous normalized [X,Y,Z,Rx,Ry,Rz] velocity command."""
+    values = [
+        _axis_value(axes, mapping.x_axis_index, mapping.x_axis_sign, "X")[1],
+        _axis_value(axes, mapping.y_axis_index, mapping.y_axis_sign, "Y")[1],
+        _axis_value(axes, mapping.z_axis_index, mapping.z_axis_sign, "Z")[1],
+        _axis_value(axes, mapping.rx_axis_index, mapping.rx_axis_sign, "Rx")[1],
+        _axis_value(axes, mapping.ry_axis_index, mapping.ry_axis_sign, "Ry")[1],
+        _axis_value(axes, mapping.rz_axis_index, mapping.rz_axis_sign, "Rz")[1],
+    ]
+    values = [
+        _shape_axis(value, mapping.deadzone, response_exponent) for value in values
+    ]
+    return _limit_vector_norm(values[:3]) + _limit_vector_norm(values[3:])
+
+
 def jog_axis_to_action(axis_id: Optional[str]):
     vector = [0.0] * 6
     if not axis_id:
@@ -102,6 +123,23 @@ def gripper_stop_target(
 
 def clamp(value: float, minimum: float, maximum: float) -> float:
     return min(max(float(value), float(minimum)), float(maximum))
+
+
+def _shape_axis(value: float, deadzone: float, exponent: float) -> float:
+    magnitude = abs(float(value))
+    deadzone = clamp(deadzone, 0.0, 0.99)
+    if magnitude <= deadzone:
+        return 0.0
+    normalized = clamp((magnitude - deadzone) / (1.0 - deadzone), 0.0, 1.0)
+    shaped = normalized ** max(1.0, float(exponent))
+    return math.copysign(shaped, value)
+
+
+def _limit_vector_norm(values: Sequence[float]):
+    norm = math.sqrt(sum(float(value) ** 2 for value in values))
+    if norm <= 1.0 or norm <= 0.0:
+        return [float(value) for value in values]
+    return [float(value) / norm for value in values]
 
 
 def _axis_value(axes: Sequence[float], index: int, sign: float, axis_id: str):

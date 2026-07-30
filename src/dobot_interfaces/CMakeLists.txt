@@ -9,6 +9,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DobotState.msg"
   "msg/GripperStatus.msg"
   "msg/TeleopAction.msg"
+  "msg/CartesianServoCommand.msg"
   "srv/GetJointState.srv"
   "srv/GetRobotState.srv"
   "srv/GetTcpPose.srv"

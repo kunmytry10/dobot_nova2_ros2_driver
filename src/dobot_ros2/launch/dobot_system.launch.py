@@ -27,6 +27,7 @@ def _robot_launch(context, *args, **kwargs):
         launch_arguments.update(
             {
                 "rviz": LaunchConfiguration("rviz"),
+                "handeye_tf": LaunchConfiguration("start_camera"),
                 "handeye_result_file": LaunchConfiguration("handeye_result_file"),
                 "handeye_output_child_frame": LaunchConfiguration(
                     "handeye_output_child_frame"
@@ -108,6 +109,8 @@ def generate_launch_description():
         DeclareLaunchArgument("toggle_enable_button_index", default_value="3"),
         DeclareLaunchArgument("toggle_drag_button_index", default_value="5"),
         DeclareLaunchArgument("deadzone", default_value="0.25"),
+        DeclareLaunchArgument("control_mode", default_value="move_jog"),
+        DeclareLaunchArgument("response_exponent", default_value="1.2"),
         DeclareLaunchArgument("coord_type", default_value="0"),
         DeclareLaunchArgument("x_axis_index", default_value="1"),
         DeclareLaunchArgument("y_axis_index", default_value="0"),
@@ -184,6 +187,8 @@ def generate_launch_description():
                 "toggle_drag_button_index"
             ),
             "deadzone": LaunchConfiguration("deadzone"),
+            "control_mode": LaunchConfiguration("control_mode"),
+            "response_exponent": LaunchConfiguration("response_exponent"),
             "coord_type": LaunchConfiguration("coord_type"),
             "x_axis_index": LaunchConfiguration("x_axis_index"),
             "y_axis_index": LaunchConfiguration("y_axis_index"),
@@ -235,6 +240,7 @@ def generate_launch_description():
                     "lerobot_dataset_root"
                 ),
                 "lerobot_repo_id": LaunchConfiguration("lerobot_repo_id"),
+                "control_mode": LaunchConfiguration("control_mode"),
                 "data_reject_hold_sec": ParameterValue(
                     LaunchConfiguration("data_reject_hold_sec"), value_type=float
                 ),

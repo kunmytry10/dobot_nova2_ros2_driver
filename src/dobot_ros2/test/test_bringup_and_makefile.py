@@ -36,6 +36,7 @@ def test_system_launch_composes_runtime_with_selectable_robot_mode():
     assert 'FindPackageShare("dobot_camera")' in source
     assert 'FindPackageShare("dobot_joy")' in source
     assert 'DeclareLaunchArgument("start_view", default_value="false")' in source
+    assert 'DeclareLaunchArgument("control_mode", default_value="move_jog")' in source
     assert 'executable="dobot_system_monitor"' in source
     assert "dobot_system_monitor = dobot_ros2.system_monitor:main" in setup
 

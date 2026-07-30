@@ -8,6 +8,7 @@ from dobot_joy.joy_common import (  # noqa: E402
     JoyMapping,
     axis_to_gripper_delta,
     axis_to_jog,
+    axes_to_cartesian_velocity,
     button_pressed,
     deadman_pressed,
     gripper_stop_target,
@@ -52,6 +53,35 @@ def test_jog_axis_to_action_uses_training_vector_order():
     assert jog_axis_to_action("Rz-") == [0.0, 0.0, 0.0, 0.0, 0.0, -1.0]
     assert jog_axis_to_action(None) == [0.0] * 6
     assert jog_axis_to_action("invalid") == [0.0] * 6
+
+
+def test_cartesian_velocity_preserves_simultaneous_axes_and_order():
+    mapping = JoyMapping(deadzone=0.2)
+    command = axes_to_cartesian_velocity(
+        [0.6, -0.8, 0.0, -0.5, -0.7, 0.0, -1.0, 1.0],
+        mapping,
+        response_exponent=1.0,
+    )
+
+    assert command[0] > 0.0
+    assert command[1] < 0.0
+    assert command[2] < 0.0
+    assert command[3] > 0.0
+    assert command[4] < 0.0
+    assert command[5] > 0.0
+
+
+def test_cartesian_velocity_applies_deadzone_and_limits_group_norms():
+    mapping = JoyMapping(deadzone=0.25)
+    assert axes_to_cartesian_velocity([0.1] * 8, mapping) == [0.0] * 6
+
+    command = axes_to_cartesian_velocity(
+        [-1.0, -1.0, 0.0, -1.0, 1.0, 0.0, -1.0, -1.0],
+        mapping,
+        response_exponent=1.0,
+    )
+    assert sum(value * value for value in command[:3]) <= 1.000001
+    assert sum(value * value for value in command[3:]) <= 1.000001
 
 
 def test_axis_to_gripper_delta_uses_triggers_with_deadzone():

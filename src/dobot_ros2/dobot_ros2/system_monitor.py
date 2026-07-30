@@ -60,6 +60,9 @@ class SystemMonitor(Node):
         self.lerobot_repo_id = str(
             self.declare_parameter("lerobot_repo_id", "").value
         )
+        self.control_mode = str(
+            self.declare_parameter("control_mode", "move_jog").value
+        )
         self.data_reject_hold_sec = float(
             self.declare_parameter("data_reject_hold_sec", 2.0).value
         )
@@ -196,6 +199,7 @@ class SystemMonitor(Node):
             "dataset_root": self.dataset_root,
             "lerobot_dataset_root": self.lerobot_dataset_root,
             "lerobot_repo_id": self.lerobot_repo_id,
+            "control_mode": self.control_mode,
             "data_reject_hold_sec": self.data_reject_hold_sec,
             "topics": {
                 "wrist_image": self.wrist_image_topic,

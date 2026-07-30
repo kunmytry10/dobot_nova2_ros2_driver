@@ -6,7 +6,7 @@
 
 - 使用 ROS2 `sensor_msgs/msg/Joy` 接收手柄输入。
 - 按住 LB 作为 deadman，松开立即停止机械臂点动。
-- 左摇杆控制 TCP 在 X/Y 平面移动，右摇杆控制 Z 和 Rz。
+- 左摇杆控制 TCP 在 X/Y 平面连续移动并支持斜线，右摇杆控制 Z 和 Rz。
 - DPad 控制 Rx/Ry。
 - LT/RT 控制 AG 夹爪连续关闭/打开，A 键做夹爪开关切换。
 - B 键急停，X 键清除报警。
@@ -22,8 +22,8 @@
 手柄功能放在独立包 `dobot_joy` 中，不放进基础驱动包：
 
 - `joy_node` 负责从 `/dev/input/js0` 读取手柄并发布 `/joy`。
-- `dobot_joy_teleop` 订阅 `/joy`，把摇杆/DPad 转换为 `/move_jog` service。
-- 机械臂运动使用 Dobot 官方 `MoveJog` 点动接口，开始运动发送轴向命令，回中或释放 deadman 发送停止命令。
+- `dobot_joy_teleop` 订阅 `/joy`；兼容模式转换为 `/move_jog` service，自由控制模式发布六维 `/cartesian_servo/command`。
+- 自由控制模式由驱动以官方建议的 33 Hz 调用 `ServoP(X,Y,Z,Rx,Ry,Rz)`，支持六轴组合、摇杆比例、死区响应和加速度斜坡。
 - 夹爪控制调用 `/gripper_move` 和 `/get_gripper_state`。
 
 当前启动命令：
@@ -45,6 +45,22 @@ make data-task TASK:="pick up the red block"
 ```bash
 make joy-teleop
 ```
+
+首次启用六维自由控制时使用：
+
+```bash
+JOY_CONTROL_MODE=servo_p JOY_LEROBOT_ENABLED=false make system
+```
+
+该模式保持 LB deadman、B 急停、100 ms 双 watchdog、关节限位 margin、TCP 工作空间
+和运动命令互斥保护。手柄请求值不会直接写入训练 action；`/joy/teleop_action` 使用
+驱动通过 `/cartesian_servo/applied` 回传的实际应用值。
+
+现场 Nova2 的 ServoP 行为与文档“返回：无”存在兼容性差异：控制器仍可能在 30003
+连接上发送协议应答。只发送不读取会在下一轮流式控制中触发 `Broken pipe`；同步等待
+应答又会阻塞 ROS executor，使 100 ms command watchdog 反复触发。当前实现每个周期以
+非阻塞方式清空上一周期的可选应答，再发送新目标，不等待网络返回。传输失败后故障会
+锁存，停止流并重建运动连接，操作员必须松开 LB 后才能再次进入。
 
 ## 当前默认键位
 
@@ -154,7 +170,7 @@ ROS2 Humble `joy_node` 在 `/joy/set_feedback` 订阅的是单条 `sensor_msgs/m
 这里的数据采集不是拖拽示教，不调用 `StartDrag()`，也不生成用于轨迹回放的示教文件。采集节点按腕部/全局相机同步图像对生成 observation/action step：
 
 - observation：腕部和全局彩色图像、关节位置/速度/力矩、TCP、机器人和夹爪状态。
-- action：teleop 实际提交的 `[X,Y,Z,Rx,Ry,Rz]` 固定速率方向和夹爪目标。
+- action：`move_jog` 时记录 `[X,Y,Z,Rx,Ry,Rz]` 固定速率方向；`servo_p` 时记录驱动实际应用的六维连续归一化速度和夹爪目标。
 - debug：原始 Joy axes/buttons 和离散事件。
 
 两种相机没有硬件同步，ROS 时间戳近似同步容差默认 50 ms。Start 前会检查两路 Image、两份 CameraInfo、同步图像对、其他数据源新鲜度和机器人状态。数据通过有界后台队列成对写盘，Back 等待队列清空后结束。
@@ -164,6 +180,9 @@ ROS2 Humble `joy_node` 在 `/joy/set_feedback` 订阅的是单条 `sensor_msgs/m
 统一启动每次创建 `logs/run_*/`，`manifest.json` 记录版本、任务和模式，`events.jsonl` 记录状态变化和 teleop/采集结果，`health.jsonl` 记录每秒就绪状态及相机实际帧率，`launch.log` 和 `ros/` 保存完整进程日志。
 
 双相机原始 sidecar 使用 `format_version=2`，分别保存到 `images/wrist`、`images/global` 和 `camera_info/wrist.json`、`camera_info/global.json`。第一次 Back 后进入 pending 审核，第二次短按 Back 才通过隔离的 Python 3.12 环境和官方 LeRobot API 追加到 Dataset v3.0；长按 Back 标记 rejected，不进入训练集。数据包含 `observation.state`、`action`、`observation.images.wrist`、`observation.images.global` 和 task。使用 `make data-validate EPISODE:=...` 检查原始数据，使用 `make data-lerobot-validate` 通过官方加载器检查训练数据集。
+
+两种控制模式的 action 名称与物理语义不同，导出器会拒绝将 `servo_p` episode 追加到
+旧的 `move_jog` 数据集。自由控制正式采集必须换用新的 dataset root/repo id。
 
 ### 手柄限位恢复
 

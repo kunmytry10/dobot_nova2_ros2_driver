@@ -77,6 +77,9 @@ class DataCollectionNode(Node):
         self.max_image_skew_sec = float(
             self.declare_parameter("max_image_skew_sec", 0.05).value
         )
+        self.control_mode = str(
+            self.declare_parameter("control_mode", "move_jog").value
+        ).strip().lower()
         self.sync_queue_size = int(
             self.declare_parameter("sync_queue_size", 20).value
         )
@@ -989,6 +992,7 @@ class DataCollectionNode(Node):
             "configured_max_image_skew_sec": float(self.max_image_skew_sec),
             "stop_reason": stop_reason,
             "task_instruction": self.task_instruction,
+            "control_mode": self.control_mode,
             "curation_status": curation_status,
             "episode_success": (
                 True
@@ -1009,7 +1013,11 @@ class DataCollectionNode(Node):
                 "joint_velocity": "rad_s",
                 "tcp_pose": "mm_deg",
                 "gripper_opening": "mm",
-                "action_cartesian": "normalized_fixed_rate_direction",
+                "action_cartesian": (
+                    "normalized_cartesian_velocity"
+                    if self.control_mode == "servo_p"
+                    else "normalized_fixed_rate_direction"
+                ),
                 "action_gripper": "normalized_opening",
                 "image_pair_skew": "sec",
             },
@@ -1040,7 +1048,11 @@ class DataCollectionNode(Node):
                 ],
                 "action": {
                     "vector_order": ["X", "Y", "Z", "Rx", "Ry", "Rz"],
-                    "cartesian_units": "normalized_fixed_rate_direction",
+                    "cartesian_units": (
+                        "normalized_cartesian_velocity"
+                        if self.control_mode == "servo_p"
+                        else "normalized_fixed_rate_direction"
+                    ),
                     "gripper": "target_opening_normalized",
                 },
             },
