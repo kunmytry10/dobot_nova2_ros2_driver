@@ -2,6 +2,12 @@
 set -euo pipefail
 
 WORKSPACE_DIR="${DOBOT_WORKSPACE_DIR:-/home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver}"
+POLICY_CONFIG_FILE="${POLICY_CONFIG_FILE:-${WORKSPACE_DIR}/config/pi05_pipeline.env}"
+if [[ -f "${POLICY_CONFIG_FILE}" ]]; then
+  set -a
+  source "${POLICY_CONFIG_FILE}"
+  set +a
+fi
 OPENPI_DIR="${OPENPI_REPO_DIR:-/home/ps/DZK_repos/openpi}"
 # Keep this Compose project aligned with OpenPI's functions.zsh helpers so the
 # deployment reuses the already-running development container for this user.

@@ -1,8 +1,10 @@
 SHELL := /bin/bash
 
-.PHONY: build driver bringup rviz control-ui control-ui-only system servo-collect servo-data-task servo-data-lerobot-validate logs-latest services topics tf frames state errors clear enable disable estop drag-start drag-stop recover-limit joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move camera camera-wrist camera-global camera-view camera-topics camera-info camera-check handeye-check handeye-capture handeye-solve handeye-validate handeye-diagnose handeye-tf handeye-board-tf keyboard keyboard-jog keyboard-input keyboard-teleop joy joy-teleop lerobot-setup data-set-start data-prepare data-clear-start data-start-pose-status data-start data-stop data-accept data-reject data-status data-task data-validate data-lerobot-export data-lerobot-validate policy-real policy-dry-run policy-motion-test policy-motion-full policy-motion-demo policy-demo-stop policy-status policy-stop move-jog jog-stop teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
+.PHONY: build driver bringup rviz control-ui control-ui-only system servo-collect servo-data-task servo-data-lerobot-validate logs-latest services topics tf frames state errors clear enable disable estop drag-start drag-stop recover-limit joints tcp gripper-init gripper-state gripper-open gripper-close gripper-move camera camera-wrist camera-global camera-view camera-topics camera-info camera-check handeye-check handeye-capture handeye-solve handeye-validate handeye-diagnose handeye-tf handeye-board-tf keyboard keyboard-jog keyboard-input keyboard-teleop joy joy-teleop lerobot-setup data-set-start data-prepare data-clear-start data-start-pose-status data-start data-stop data-accept data-reject data-status data-task data-validate data-lerobot-export data-lerobot-validate policy-train policy-real policy-dry-run policy-motion-test policy-motion-full policy-motion-demo policy-demo-stop policy-status policy-stop move-jog jog-stop teach-start teach-stop teach-replay teach-replay-servoj teach-list teach-delete teach-status movej movejp movel movep
 
 WS ?= $(CURDIR)
+COLLECTION_CONFIG ?= $(WS)/config/pi05_pipeline.env
+-include $(COLLECTION_CONFIG)
 ORBBEC_WS ?= $(HOME)/orbbec_305
 PARAMS ?= $(WS)/src/dobot_ros2/config/dobot_ros2.yaml
 ROBOT_IP ?= 192.168.5.1
@@ -124,6 +126,7 @@ JOY_DATA_REJECT_HOLD_SEC ?= 2.0
 JOY_COLLECTION_PREPARE_HOLD_SEC ?= 1.5
 JOY_LIMIT_RECOVERY_HOLD_SEC ?= 3.0
 JOY_LIMIT_RECOVERY_TIMEOUT_SEC ?= 10.0
+PI05_TRAIN_CONFIG ?= $(WS)/config/pi05_pipeline.env
 ROBOT_MODE ?= bringup
 SYSTEM_VIEW ?= false
 SYSTEM_START_CAMERA ?= true
@@ -280,7 +283,7 @@ servo-collect:
 	$(MAKE) system SYSTEM_START_OPERATOR_PANEL=true JOY_CONTROL_MODE=servo_p COLLECTION_REQUIRE_START_POSE=true JOY_DATASET_ROOT=$(SERVO_DATASET_ROOT) JOY_LEROBOT_DATASET_ROOT=$(SERVO_LEROBOT_DATASET_ROOT) JOY_LEROBOT_REPO_ID=$(SERVO_LEROBOT_REPO_ID) COLLECTION_START_POSE_FILE=$(SERVO_START_POSE_FILE)
 
 servo-data-task:
-	$(MAKE) data-task JOY_DATASET_ROOT=$(SERVO_DATASET_ROOT)
+	$(MAKE) data-task JOY_DATASET_ROOT=$(SERVO_DATASET_ROOT) TASK="$(SERVO_TASK)"
 
 servo-data-lerobot-validate:
 	$(MAKE) data-lerobot-validate JOY_DATASET_ROOT=$(SERVO_DATASET_ROOT) JOY_LEROBOT_DATASET_ROOT=$(SERVO_LEROBOT_DATASET_ROOT) JOY_LEROBOT_REPO_ID=$(SERVO_LEROBOT_REPO_ID)
@@ -341,6 +344,9 @@ data-lerobot-validate:
 
 policy-real:
 	$(WS)/scripts/run_pi05_grasp.sh
+
+policy-train:
+	PI05_TRAIN_CONFIG=$(PI05_TRAIN_CONFIG) $(WS)/scripts/train_pi05_dobot.sh
 
 policy-dry-run:
 	POLICY_ARMED=false POLICY_RUN_TIMEOUT_SEC=25 $(WS)/scripts/run_pi05_grasp.sh
