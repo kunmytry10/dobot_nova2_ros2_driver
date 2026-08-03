@@ -144,7 +144,7 @@ def test_project_makefile_wraps_common_ros_workflows():
     assert "HANDEYE_RESULT_FILE ?=" in source
     assert "HANDEYE_DIAGNOSE_FILE ?=" in source
     assert "HANDEYE_METHOD ?= TSAI" in source
-    assert "HANDEYE_STATIC_TF_FILE ?= $(WS)/handeye_result.yaml" in source
+    assert "HANDEYE_STATIC_TF_FILE ?= $(DATA_ROOT)/handeye/handeye_result.yaml" in source
     assert "HANDEYE_STATIC_TF_CHILD_FRAME ?= camera_link" in source
     assert "KEYBOARD_TOPIC ?= /keyboard/input" in source
     assert "KEYBOARD_DEV ?= /dev/input/event0" in source

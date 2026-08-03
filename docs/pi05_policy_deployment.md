@@ -187,10 +187,10 @@ make policy-status
 make policy-stop
 ```
 
-## 7. 一键实机抓取
+## 7. 历史：旧 MoveJog 一键实机抓取
 
-> 本节记录旧 MoveJog checkpoint 的历史操作。2026-08-01 的 ServoP v1 已因夹爪标签缺陷
-> 在脚本中硬性阻断，当前执行 `make policy-real` 会直接拒绝，不会启动机器人。
+> 本节只用于追溯旧 MoveJog checkpoint，不能用于当前 pen-box ServoP 模型。当前入口见文档开头；
+> 旧 checkpoint 和旧夹爪状态机均已废弃。
 
 执行前：
 
@@ -208,7 +208,8 @@ cd /home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver
 make policy-real
 ```
 
-该命令会显示 5 秒倒计时，然后自动使能机器人并开始闭环抓取。夹爪初始化必须在实机策略前单独确认成功；一键策略不会反复发送 home/初始化命令。成功条件是夹爪检测到物体，并完成配置的 post-grasp 抬升窗口。运行中随时按 Ctrl-C 会触发停止和 disable 清理流程。
+历史脚本曾显示倒计时并自动使能机器人；这些行为已由当前暖启动入口重新实现。不要用本节旧的
+checkpoint、任务描述或成功状态机进行实机操作。
 
 ## 8. 日志
 
