@@ -9,6 +9,14 @@ NON_REVERSING_HOLD_REASONS = {
 }
 
 
+def heartbeat_expired(active: bool, last_command: float, now: float, timeout: float):
+    return (
+        bool(active)
+        and float(timeout) > 0.0
+        and float(now) - float(last_command) > float(timeout)
+    )
+
+
 def clamp_normalized_vector(values: Sequence[float]):
     result = [max(-1.0, min(1.0, float(value))) for value in values[:6]]
     return result + [0.0] * (6 - len(result))

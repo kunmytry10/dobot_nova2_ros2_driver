@@ -316,6 +316,9 @@ class DobotController:
         # the channel in streaming mode across normal deadman releases, then
         # reset it lazily before the next request/reply motion command.
         self._move_channel_streaming = False
+        # A request/reply motion (especially MoveJ + Sync) may leave controller
+        # response bytes on its socket. Reconnect before resuming ServoP.
+        self._move_channel_needs_stream_reconnect = False
 
     def connect(self) -> None:
         with self._client_lock:
@@ -429,13 +432,30 @@ class DobotController:
     def prepare_servo_stream(self) -> None:
         """Connect once before entering the time-critical ServoP loop."""
         self.connect()
+        if self._move_channel_needs_stream_reconnect:
+            self._log(
+                "reconnecting move channel before ServoP stream after "
+                "request/reply motion"
+            )
+            self._reconnect_move_client()
         with self._move_command_lock:
             if self.move_client is None:
                 raise RuntimeError("move client is not connected")
             socket_obj = getattr(self.move_client, "socket_dobot", None)
             if socket_obj in (None, 0):
                 raise RuntimeError("move socket is not connected")
-            self._drain_streaming_replies(socket_obj)
+            try:
+                self._drain_streaming_replies(socket_obj)
+            except (OSError, TimeoutError) as exc:
+                self._log(
+                    "ServoP stream preparation drain failed; reconnecting "
+                    f"move channel: {exc}"
+                )
+                self._reconnect_move_client()
+                socket_obj = getattr(self.move_client, "socket_dobot", None)
+                if socket_obj in (None, 0):
+                    raise RuntimeError("move socket is not connected after reconnect")
+                self._drain_streaming_replies(socket_obj)
 
     def servo_p(
         self,
@@ -1433,12 +1453,14 @@ class DobotController:
     def _send_move(self, command: str, timeout_sec: float) -> str:
         if self.move_client is None:
             raise RuntimeError("move client is not connected")
-        return self._send(
+        reply = self._send(
             self.move_client,
             command,
             timeout_sec,
             self._move_command_lock,
         )
+        self._move_channel_needs_stream_reconnect = True
+        return reply
 
     def _send_move_with_reconnect(self, command: str, timeout_sec: float) -> str:
         if self._move_channel_streaming:
@@ -1447,11 +1469,13 @@ class DobotController:
                 f"command: {command.split('(', 1)[0]}"
             )
             self._reconnect_move_client()
+            time.sleep(0.1)
         try:
             reply = self._send_move(command, timeout_sec)
         except Exception as exc:
             self._log(f"move command transport failed, reconnecting {self.config.move_port}: {exc}")
             self._reconnect_move_client()
+            time.sleep(0.1)
             return self._send_move(command, timeout_sec)
 
         if reply.strip():
@@ -1459,10 +1483,20 @@ class DobotController:
 
         self._log(f"empty move reply, reconnecting {self.config.move_port} and retrying once")
         self._reconnect_move_client()
+        time.sleep(0.1)
         retry_reply = self._send_move(command, timeout_sec)
         if retry_reply.strip():
             return retry_reply
-        raise RuntimeError(f"empty move reply after reconnect for {command}")
+        self._log(
+            f"second empty move reply, reconnecting {self.config.move_port} "
+            "and retrying a final time"
+        )
+        self._reconnect_move_client()
+        time.sleep(0.1)
+        final_reply = self._send_move(command, timeout_sec)
+        if final_reply.strip():
+            return final_reply
+        raise RuntimeError(f"empty move reply after reconnect retries for {command}")
 
     def _send(
         self,
@@ -1494,6 +1528,7 @@ class DobotController:
             self.move_client = DobotApiMove(self.config.robot_ip, self.config.move_port)
             self._configure_move_client(self.move_client)
             self._move_channel_streaming = False
+            self._move_channel_needs_stream_reconnect = False
 
     @staticmethod
     def _configure_move_client(move_client) -> None:

@@ -1,4 +1,5 @@
 import json
+import math
 import queue
 import subprocess
 import threading
@@ -11,6 +12,7 @@ import message_filters
 import rclpy
 from cv_bridge import CvBridge
 from dobot_interfaces.msg import DobotState, GripperStatus, TeleopAction
+from dobot_interfaces.srv import GripperCommand, MoveCommand
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image, JointState, Joy
@@ -118,6 +120,48 @@ class DataCollectionNode(Node):
             self.declare_parameter("lerobot_export_timeout_sec", 900.0).value
         )
         self._lerobot_export_script = Path(__file__).with_name("lerobot_export.py")
+        start_pose_file = str(
+            self.declare_parameter("collection.start_pose_file", "").value
+        )
+        self.start_pose_file = (
+            Path(start_pose_file)
+            if start_pose_file
+            else self.dataset_root / "servo_p_start_pose.json"
+        )
+        self.require_start_pose = bool(
+            self.declare_parameter("collection.require_start_pose", False).value
+        )
+        self.start_joint_tolerance_deg = float(
+            self.declare_parameter("collection.start_joint_tolerance_deg", 1.0).value
+        )
+        self.start_gripper_tolerance_mm = float(
+            self.declare_parameter("collection.start_gripper_tolerance_mm", 3.0).value
+        )
+        self.prepare_speed = int(
+            self.declare_parameter("collection.prepare_speed", 10).value
+        )
+        self.prepare_acceleration = int(
+            self.declare_parameter("collection.prepare_acceleration", 10).value
+        )
+        self.prepare_timeout_sec = float(
+            self.declare_parameter("collection.prepare_timeout_sec", 30.0).value
+        )
+        self.auto_return_after_stop = bool(
+            self.declare_parameter("collection.auto_return_after_stop", True).value
+        )
+        self.auto_return_opening_mm = float(
+            self.declare_parameter("collection.auto_return_opening_mm", 95.0).value
+        )
+        self._start_pose = self._load_start_pose()
+        self._prepared = False
+        self._preparing = False
+        self._prepare_phase = "idle"
+        self._prepare_deadline = 0.0
+        self._returning = False
+        self._return_phase = "idle"
+        self._return_session_dir = None
+        self._return_move_attempt = 0
+        self._return_move_request = None
 
         self.bridge = CvBridge()
         self._lock = threading.RLock()
@@ -144,8 +188,13 @@ class DataCollectionNode(Node):
         self._received = {}
         self._camera_info = {name: None for name in CAMERA_NAMES}
         self._lerobot_export = None
+        self._export_phase = "idle"
+        self._export_current_dir = None
+        self._export_queue = queue.Queue()
+        self._export_items = {}
         self._lerobot_environment = self._probe_lerobot_environment()
         self._pending_session_dir = self._find_pending_session()
+        self._queued_export_paths = self._find_queued_exports()
 
         self._write_queue = queue.Queue(maxsize=max(1, self.write_queue_size))
         self._writer_thread = threading.Thread(
@@ -154,6 +203,15 @@ class DataCollectionNode(Node):
             daemon=True,
         )
         self._writer_thread.start()
+        self._export_thread = threading.Thread(
+            target=self._export_worker_loop,
+            name="dobot-lerobot-exporter",
+            daemon=True,
+        )
+        self._export_thread.start()
+        for queued_path in self._queued_export_paths:
+            self._export_items[str(queued_path)] = "queued"
+            self._export_queue.put(queued_path)
 
         self.create_subscription(DobotState, "/dobot_state", self._on_robot, 10)
         self.create_subscription(JointState, "/joint_states", self._on_joints, 10)
@@ -201,12 +259,25 @@ class DataCollectionNode(Node):
         )
         self._image_sync.registerCallback(self._on_image_pair)
 
+        self.movej_client = self.create_client(MoveCommand, "/movej")
+        self.gripper_move_client = self.create_client(
+            GripperCommand, "/gripper_move"
+        )
+
         self.create_service(Trigger, "/data_collection/start", self._start)
+        self.create_service(
+            Trigger, "/data_collection/set_start_pose", self._set_start_pose
+        )
+        self.create_service(Trigger, "/data_collection/prepare", self._prepare)
+        self.create_service(
+            Trigger, "/data_collection/clear_start_pose", self._clear_start_pose
+        )
         self.create_service(Trigger, "/data_collection/stop", self._stop)
         self.create_service(Trigger, "/data_collection/accept", self._accept)
         self.create_service(Trigger, "/data_collection/reject", self._reject)
         self.create_service(Trigger, "/data_collection/status", self._status)
         self.create_timer(0.25, self._check_recording_sources)
+        self.create_timer(0.1, self._check_prepare)
 
     def destroy_node(self):
         with self._lock:
@@ -215,6 +286,8 @@ class DataCollectionNode(Node):
             self._finish_session("node_shutdown", complete=False)
         self._write_queue.put(None)
         self._writer_thread.join(timeout=5.0)
+        self._export_queue.put(None)
+        self._export_thread.join(timeout=5.0)
         super().destroy_node()
 
     def _remember(self, name: str, value) -> None:
@@ -451,6 +524,10 @@ class DataCollectionNode(Node):
                 response.success = False
                 response.message = f"data collection already active: {self._session_dir}"
                 return response
+            if self._returning:
+                response.success = False
+                response.message = "data collection is waiting for automatic return"
+                return response
             if self._pending_session_dir is not None:
                 response.success = False
                 response.message = (
@@ -496,6 +573,8 @@ class DataCollectionNode(Node):
             response.message = "data collection is not active"
             return response
         path, complete = self._finish_session("user_stop", complete=None)
+        if complete:
+            self._start_auto_return(path)
         response.success = complete
         if complete and self.lerobot_enabled:
             response.message = (
@@ -503,6 +582,7 @@ class DataCollectionNode(Node):
                 "short Back to accept or hold Back to reject"
             )
         elif complete:
+            self._start_auto_return(path)
             response.message = f"data collection saved: {path}"
         else:
             response.message = (
@@ -527,51 +607,42 @@ class DataCollectionNode(Node):
                 response.message = "data collection is busy"
                 return response
             self._finishing = True
-        export = self._export_to_lerobot(path) if self.lerobot_enabled else {
-            "exported": True,
-            "disabled": True,
-        }
-        accepted = bool(export.get("exported"))
-        with self._lock:
-            self._lerobot_export = export
-            if accepted:
-                self._update_episode_curation(
-                    path,
-                    status="accepted",
-                    episode_success=True,
-                    lerobot_export=export,
-                )
-                self._append_episode_event(
-                    path,
-                    "accept",
-                    {"lerobot_episode_index": export.get("episode_index")},
-                )
-                self._pending_session_dir = None
-            else:
-                self._update_episode_curation(
-                    path,
-                    status="pending",
-                    episode_success=None,
-                    lerobot_export=export,
-                )
-                self._append_episode_event(
-                    path,
-                    "accept_failed",
-                    {"error": export.get("error", "LeRobot export failed")},
-                )
-            self._finishing = False
-        response.success = accepted
-        response.message = (
-            f"data collection saved: {path}"
-            if accepted
-            else (
-                f"data collection accept failed; episode remains pending: {path}; "
-                f"lerobot_error={export.get('error', 'LeRobot export failed')}"
-            )
-        )
-        (self.get_logger().info if accepted else self.get_logger().error)(
-            response.message
-        )
+            self._pending_session_dir = None
+        if not self.lerobot_enabled:
+            try:
+                export = {"exported": True, "disabled": True}
+                self._export_items[str(path)] = "success"
+                self._update_episode_curation(path, "accepted", True, export)
+                self._append_episode_event(path, "accept")
+                response.success = True
+                response.message = f"data collection saved: {path}"
+                self.get_logger().info(response.message)
+                return response
+            except (OSError, json.JSONDecodeError) as exc:
+                response.success = False
+                response.message = f"failed to accept episode: {exc}"
+                return response
+            finally:
+                with self._lock:
+                    self._finishing = False
+        queued = {"exported": False, "queued": True, "queued_utc": _utc_now()}
+        try:
+            with self._lock:
+                self._lerobot_export = queued
+                self._export_items[str(path)] = "queued"
+                self._update_episode_curation(path, "export_queued", None, queued)
+                self._append_episode_event(path, "export_queued")
+                self._export_queue.put(path)
+        except (OSError, json.JSONDecodeError) as exc:
+            response.success = False
+            response.message = f"failed to queue LeRobot export: {exc}"
+            return response
+        finally:
+            with self._lock:
+                self._finishing = False
+        response.success = True
+        response.message = f"LeRobot export queued: {path}"
+        self.get_logger().info(response.message)
         return response
 
     def _reject(self, request, response):
@@ -586,6 +657,7 @@ class DataCollectionNode(Node):
         if recording:
             pending, complete = self._finish_session("user_reject", complete=None)
             if not complete:
+                self._start_auto_return(pending)
                 response.success = True
                 response.message = f"data collection discarded incomplete: {pending}"
                 self.get_logger().info(response.message)
@@ -631,6 +703,8 @@ class DataCollectionNode(Node):
                         if self._recording
                         else "pending"
                         if self._pending_session_dir is not None
+                        else "exporting"
+                        if self._export_phase == "exporting" or self._export_queue.qsize()
                         else "idle"
                     ),
                     "session_dir": str(self._session_dir or ""),
@@ -659,9 +733,206 @@ class DataCollectionNode(Node):
                     "lerobot_repo_id": self.lerobot_repo_id,
                     "lerobot_environment": self._lerobot_environment,
                     "last_lerobot_export": self._lerobot_export,
+                    "start_pose_file": str(self.start_pose_file),
+                    "start_pose_configured": self._start_pose is not None,
+                    "prepared": self._prepared,
+                    "preparing": self._preparing,
+                    "prepare_phase": self._prepare_phase,
+                    "returning": self._returning,
+                    "return_phase": self._return_phase,
+                    "export_phase": self._export_phase,
+                    "export_current_dir": str(self._export_current_dir or ""),
+                    "export_queue_depth": self._export_queue.qsize(),
+                    "export_items": [
+                        {"episode": episode, "status": status}
+                        for episode, status in self._export_items.items()
+                    ],
                 }
             )
             return response
+
+    def _load_start_pose(self):
+        try:
+            value = json.loads(self.start_pose_file.read_text(encoding="utf-8"))
+            joints = [float(item) for item in value["joints_deg"]]
+            if len(joints) != 6:
+                raise ValueError("joints_deg must contain six values")
+            opening = float(value["gripper_opening_mm"])
+            return {"joints_deg": joints, "gripper_opening_mm": opening}
+        except FileNotFoundError:
+            return None
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            self.get_logger().error(f"invalid collection start pose: {exc}")
+            return None
+
+    def _set_start_pose(self, request, response):
+        del request
+        ready, message = self._start_pose_feedback_ready()
+        if not ready:
+            response.success = False
+            response.message = message
+            return response
+        joints_rad = self._latest["joints"]["position_rad"][:6]
+        gripper = self._latest["gripper"]
+        pose = {
+            "version": 1,
+            "saved_utc": _utc_now(),
+            "joints_deg": [math.degrees(value) for value in joints_rad],
+            "tcp_pose_mm_deg": list(self._latest["tcp_pose_mm_deg"][:6]),
+            "gripper_opening_mm": float(gripper["opening_mm"]),
+        }
+        self.start_pose_file.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.start_pose_file.with_suffix(".tmp")
+        temporary.write_text(json.dumps(pose, indent=2), encoding="utf-8")
+        temporary.replace(self.start_pose_file)
+        self._start_pose = pose
+        self._prepared = True
+        response.success = True
+        response.message = f"collection start pose saved: {self.start_pose_file}"
+        return response
+
+    def _clear_start_pose(self, request, response):
+        del request
+        if self._recording or self._preparing:
+            response.success = False
+            response.message = "cannot clear collection start pose while active"
+            return response
+        self._start_pose = None
+        self._prepared = False
+        self.start_pose_file.unlink(missing_ok=True)
+        response.success = True
+        response.message = "collection start pose cleared"
+        return response
+
+    def _prepare(self, request, response):
+        del request
+        if self._recording or self._finishing or self._pending_session_dir is not None:
+            response.success = False
+            response.message = "prepare rejected: finish and review the current episode first"
+            return response
+        if self._preparing:
+            response.success = False
+            response.message = "prepare already in progress"
+            return response
+        if self._start_pose is None:
+            response.success = False
+            response.message = "prepare rejected: run make data-set-start at the desired pose first"
+            return response
+        ready, message = self._start_pose_feedback_ready()
+        if not ready:
+            response.success = False
+            response.message = message
+            return response
+        if self._latest.get("action", {}).get("motion_active"):
+            response.success = False
+            response.message = "prepare rejected: release the deadman and stop teleoperation"
+            return response
+        if self._latest.get("robot", {}).get("robot_mode") == 6:
+            response.success = False
+            response.message = "prepare rejected: exit drag mode before returning to the start pose"
+            return response
+        if not self.movej_client.service_is_ready():
+            response.success = False
+            response.message = "prepare rejected: /movej service is unavailable"
+            return response
+        self._prepared = False
+        self._preparing = True
+        self._prepare_phase = "movej"
+        self._prepare_deadline = time.monotonic() + self.prepare_timeout_sec + 8.0
+        move = MoveCommand.Request()
+        move.target = list(self._start_pose["joints_deg"])
+        move.user = 0
+        move.tool = 0
+        move.speed = self.prepare_speed
+        move.acceleration = self.prepare_acceleration
+        move.wait = True
+        move.timeout_sec = self.prepare_timeout_sec
+        self.movej_client.call_async(move).add_done_callback(self._prepare_move_done)
+        response.success = True
+        response.message = "prepare started: moving to collection start pose"
+        return response
+
+    def _prepare_move_done(self, future):
+        try:
+            result = future.result()
+            if not result.success:
+                raise RuntimeError(result.message)
+            if not self.gripper_move_client.service_is_ready():
+                raise RuntimeError("/gripper_move service is unavailable")
+            request = GripperCommand.Request()
+            request.opening_mm = float(self._start_pose["gripper_opening_mm"])
+            request.position_permille = -1
+            request.force_percent = -1
+            request.force_n = -1.0
+            request.wait = True
+            request.timeout_sec = self.prepare_timeout_sec
+            self._prepare_phase = "gripper"
+            self.gripper_move_client.call_async(request).add_done_callback(
+                self._prepare_gripper_done
+            )
+        except Exception as exc:
+            self._prepare_failed(str(exc))
+
+    def _prepare_gripper_done(self, future):
+        try:
+            result = future.result()
+            if not result.success:
+                raise RuntimeError(result.message)
+            self._prepare_phase = "verify"
+        except Exception as exc:
+            self._prepare_failed(str(exc))
+
+    def _check_prepare(self):
+        if not self._preparing:
+            return
+        if time.monotonic() >= self._prepare_deadline:
+            self._prepare_failed("timed out waiting for start-pose feedback")
+            return
+        if self._prepare_phase != "verify":
+            return
+        ready, _ = self._at_start_pose()
+        if ready:
+            self._preparing = False
+            self._prepared = True
+            self._prepare_phase = "ready"
+            self.get_logger().info("collection start pose verified; press Start to record")
+
+    def _prepare_failed(self, reason):
+        self._preparing = False
+        self._prepared = False
+        self._prepare_phase = "failed"
+        self.get_logger().error(f"collection prepare failed: {reason}")
+
+    def _start_pose_feedback_ready(self):
+        robot = self._latest.get("robot", {})
+        joints = self._latest.get("joints", {})
+        gripper = self._latest.get("gripper", {})
+        if len(joints.get("position_rad", [])) < 6:
+            return False, "prepare rejected: joint feedback is unavailable"
+        if not robot.get("connected") or not robot.get("feedback_valid"):
+            return False, "prepare rejected: robot feedback is unavailable"
+        if robot.get("error_status") or robot.get("robot_mode") == 9:
+            return False, "prepare rejected: robot is in an error state"
+        if robot.get("enable_status") != 1:
+            return False, "prepare rejected: robot is not enabled"
+        if not gripper.get("success") or not gripper.get("connected"):
+            return False, "prepare rejected: gripper feedback is unavailable"
+        return True, "ready"
+
+    def _at_start_pose(self):
+        if self._start_pose is None:
+            return False, "collection start pose is not configured"
+        ready, message = self._start_pose_feedback_ready()
+        if not ready:
+            return False, message
+        current = [math.degrees(value) for value in self._latest["joints"]["position_rad"][:6]]
+        errors = [abs(value - target) for value, target in zip(current, self._start_pose["joints_deg"])]
+        if max(errors, default=float("inf")) > self.start_joint_tolerance_deg:
+            return False, "robot is outside collection start-pose tolerance"
+        opening = float(self._latest["gripper"]["opening_mm"])
+        if abs(opening - float(self._start_pose["gripper_opening_mm"])) > self.start_gripper_tolerance_mm:
+            return False, "gripper is outside collection start-pose tolerance"
+        return True, "ready"
 
     def _refresh_task_instruction(self):
         if self.task_file is None:
@@ -685,6 +956,15 @@ class DataCollectionNode(Node):
         ]
 
     def _ready_to_start(self):
+        if self.require_start_pose:
+            ready, message = self._at_start_pose()
+            if not self._prepared or not ready:
+                self._prepared = False
+                return (
+                    False,
+                    "data collection rejected: prepare the verified ServoP start pose first; "
+                    + message,
+                )
         if self.lerobot_enabled and not self._lerobot_environment.get("available"):
             return (
                 False,
@@ -719,8 +999,22 @@ class DataCollectionNode(Node):
             return False, "data collection rejected: robot feedback is not ready"
         if robot.get("error_status") or robot.get("robot_mode") == 9:
             return False, "data collection rejected: robot is in error state"
+        if robot.get("robot_mode") == 6:
+            return False, "data collection rejected: exit drag mode before recording"
         if robot.get("enable_status") != 1:
             return False, "data collection rejected: robot is not enabled"
+        gripper = self._latest.get("gripper", {})
+        action = self._latest.get("action", {})
+        opening_mm = gripper.get("opening_mm")
+        target_mm = action.get("gripper_target_mm")
+        if opening_mm is None or target_mm is None:
+            return False, "data collection rejected: gripper target is unavailable"
+        if abs(float(opening_mm) - float(target_mm)) > self.start_gripper_tolerance_mm:
+            return (
+                False,
+                "data collection rejected: gripper feedback and action target disagree; "
+                "release controls and press Start again",
+            )
         return True, "ready"
 
     def _check_recording_sources(self):
@@ -867,6 +1161,21 @@ class DataCollectionNode(Node):
             self.get_logger().info(f"recovered pending episode: {pending[-1]}")
         return pending[-1]
 
+    def _find_queued_exports(self):
+        if not self.dataset_root.is_dir():
+            return []
+        paths = []
+        for path in self.dataset_root.glob("episode_*"):
+            try:
+                metadata = json.loads(
+                    (path / "metadata.json").read_text(encoding="utf-8")
+                )
+            except (OSError, json.JSONDecodeError):
+                continue
+            if metadata.get("curation_status") == "export_queued":
+                paths.append(path)
+        return sorted(paths, key=lambda item: item.stat().st_mtime)
+
     def _update_episode_curation(
         self,
         episode_dir: Path,
@@ -919,6 +1228,148 @@ class DataCollectionNode(Node):
         if not result.get("exported"):
             result.setdefault("error", "LeRobot export failed")
         return result
+
+    def _export_worker_loop(self):
+        while True:
+            path = self._export_queue.get()
+            if path is None:
+                self._export_queue.task_done()
+                return
+            try:
+                with self._lock:
+                    self._export_phase = "exporting"
+                    self._export_current_dir = path
+                    self._export_items[str(path)] = "exporting"
+                self._append_episode_event(path, "export_started")
+                export = self._export_to_lerobot(path)
+                accepted = bool(export.get("exported"))
+                with self._lock:
+                    self._lerobot_export = export
+                    self._export_items[str(path)] = "success" if accepted else "failed"
+                    self._update_episode_curation(
+                        path,
+                        "accepted" if accepted else "export_failed",
+                        True if accepted else None,
+                        export,
+                    )
+                    self._append_episode_event(
+                        path,
+                        "export_completed" if accepted else "export_failed",
+                        (
+                            {"lerobot_episode_index": export.get("episode_index")}
+                            if accepted
+                            else {"error": export.get("error", "LeRobot export failed")}
+                        ),
+                    )
+                    self._export_phase = "idle"
+                    self._export_current_dir = None
+                if accepted:
+                    self.get_logger().info(f"LeRobot export completed: {path}")
+                else:
+                    self.get_logger().error(
+                        f"LeRobot export failed: {path}; {export.get('error')}"
+                    )
+            except Exception as exc:  # pragma: no cover - worker safety
+                self.get_logger().error(f"LeRobot export worker failed: {exc}")
+                with self._lock:
+                    self._export_phase = "failed"
+                    self._export_current_dir = None
+                    self._lerobot_export = {"exported": False, "error": str(exc)}
+                    self._export_items[str(path)] = "failed"
+                    try:
+                        self._update_episode_curation(path, "export_failed", None, self._lerobot_export)
+                        self._append_episode_event(path, "export_failed", {"error": str(exc)})
+                    except (OSError, json.JSONDecodeError) as metadata_exc:
+                        self.get_logger().error(f"failed to record export failure: {metadata_exc}")
+            finally:
+                self._export_queue.task_done()
+
+    def _start_auto_return(self, session_dir: Path):
+        if not self.auto_return_after_stop or self._start_pose is None:
+            return
+        if self._preparing or self._returning:
+            return
+        if not self.gripper_move_client.service_is_ready() or not self.movej_client.service_is_ready():
+            self.get_logger().error("automatic return skipped: required motion service is unavailable")
+            return
+        self._returning = True
+        self._return_phase = "opening_gripper"
+        self._return_session_dir = session_dir
+        self._return_move_attempt = 0
+        self._append_episode_event(session_dir, "auto_return_started")
+        request = GripperCommand.Request()
+        request.opening_mm = self.auto_return_opening_mm
+        request.position_permille = -1
+        request.force_percent = -1
+        request.force_n = -1.0
+        request.wait = True
+        request.timeout_sec = self.prepare_timeout_sec
+        self.gripper_move_client.call_async(request).add_done_callback(
+            self._auto_return_gripper_done
+        )
+
+    def _auto_return_gripper_done(self, future):
+        try:
+            result = future.result()
+            if not result.success:
+                raise RuntimeError(result.message)
+            request = MoveCommand.Request()
+            request.target = list(self._start_pose["joints_deg"])
+            request.user = 0
+            request.tool = 0
+            request.speed = self.prepare_speed
+            request.acceleration = self.prepare_acceleration
+            request.wait = True
+            request.timeout_sec = self.prepare_timeout_sec
+            self._return_phase = "movej"
+            self._return_move_request = request
+            self.movej_client.call_async(request).add_done_callback(
+                self._auto_return_move_done
+            )
+        except Exception as exc:
+            self._finish_auto_return(False, str(exc))
+
+    def _auto_return_move_done(self, future):
+        try:
+            result = future.result()
+            if not result.success:
+                if (
+                    "empty move reply" in result.message.lower()
+                    and self._return_move_attempt < 1
+                ):
+                    self._return_move_attempt += 1
+                    self.get_logger().warning(
+                        "automatic return MoveJ received an empty reply; retrying once"
+                    )
+                    self.movej_client.call_async(self._return_move_request).add_done_callback(
+                        self._auto_return_move_done
+                    )
+                    return
+                raise RuntimeError(result.message)
+            self._finish_auto_return(True, "returned to collection start pose")
+        except Exception as exc:
+            self._finish_auto_return(False, str(exc))
+
+    def _finish_auto_return(self, success: bool, message: str):
+        path = self._return_session_dir
+        self._returning = False
+        self._return_phase = "idle" if success else "failed"
+        self._return_session_dir = None
+        self._return_move_attempt = 0
+        if path is not None:
+            try:
+                self._append_episode_event(
+                    path,
+                    "auto_return_completed" if success else "auto_return_failed",
+                    {"message": message},
+                )
+            except OSError as exc:
+                self.get_logger().error(f"failed to write automatic return event: {exc}")
+        log_message = f"automatic return {'completed' if success else 'failed'}: {message}"
+        if success:
+            self.get_logger().info(log_message)
+        else:
+            self.get_logger().error(log_message)
 
     def _run_lerobot(self, arguments, timeout_sec):
         command = [

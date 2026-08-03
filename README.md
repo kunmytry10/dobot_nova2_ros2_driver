@@ -80,6 +80,9 @@ make control-ui # driver + robot_state_publisher + Web 控制台 + 可选手眼 
 | `make lerobot-setup` | 创建隔离 Python 3.12 环境并安装固定版本的官方 LeRobot v3 工具 |
 | `make data-start` / `make data-stop` | 调试用：通过 service 开始/停止或确认手柄遥操作数据采集 |
 | `make data-accept` / `make data-reject` | 接受或拒绝待审核 episode；拒绝只标记原始数据，不删除文件 |
+| `make data-set-start` | 保存当前反馈为 ServoP 采集标准起点，不运动 |
+| `make data-prepare` | 显式回到保存的起点并校验夹爪、关节反馈 |
+| `make servo-data-lerobot-validate` | 只读验证独立 ServoP LeRobot v3 数据集 |
 | `make data-status` | 查看当前任务、采集阶段、同步差、样本数、队列和错误数 |
 | `make data-task TASK:="..."` | 持久保存任务描述，下一次 Start 自动读取，不需要重启 joy |
 | `make data-validate EPISODE:=...` | 检查 episode 元数据、双相机图片、同步差和训练字段 |
@@ -103,6 +106,82 @@ make control-ui # driver + robot_state_publisher + Web 控制台 + 可选手眼 
 | `make services` | 列出所有 service |
 
 运动参数默认值：`SPEED=2 ACC=2 WAIT=true TIMEOUT=20`。
+
+## π0.5 训练与实机部署
+
+训练在 OpenPI 的 GPU Docker 容器中执行，机械臂、相机和真机 policy 都从本仓库启动。下面的
+流程只需要替换 `DATASET_DIR`（训练）或 `CHECKPOINT_DIR`/`POLICY_CONFIG`（部署）；训练细节和
+历史记录见 OpenPI 的 `docs/dobot_pi05_docker_training.md`，部署联调记录见
+`docs/pi05_policy_deployment.md`。
+
+### 1. 训练一个新数据集
+
+```bash
+cd /home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver
+OPENPI_DIR=/home/ps/DZK_repos/openpi
+DATASET_DIR=/home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver/data/servo_p_v2/lerobot_pi05_servo_p_v2
+EXP_NAME=dobot_pen_box_servo_p_action_only_v1_long
+
+cd "$OPENPI_DIR"
+export OPENPI_DOBOT_DATASET_DIR="$DATASET_DIR"
+docker compose -f compose.yaml -f compose.gpu.yaml -f compose.dobot.yaml up -d openpi
+docker compose -f compose.yaml -f compose.gpu.yaml -f compose.dobot.yaml exec openpi \
+  zsh -lc 'source /usr/local/share/openpi/functions.zsh && \
+    opic-norm --config-name pi05_dobot_pen_box_servo_p_action_only && \
+    opic-train pi05_dobot_pen_box_servo_p_action_only \
+      --exp-name='"$EXP_NAME"' --overwrite'
+```
+
+训练日志、`metrics.csv`、`training_curves.png` 和 checkpoint 都写入
+`/home/ps/openpi-docker-data/`。长时训练建议在 `exec` 命令后加 `-d -T` 并将 stdout 重定向到
+`openpi-docker-data/wandb/`，用 `tail -f` 观察；需要停止时在 OpenPI 仓库执行
+`docker compose ... exec openpi pkill -f scripts/train.py`。
+
+### 2. 部署一个 checkpoint
+
+```bash
+cd /home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver
+export OPENPI_REPO_DIR=/home/ps/DZK_repos/openpi
+export OPENPI_POLICY_CONFIG=pi05_dobot_pen_box_servo_p_action_only
+export OPENPI_CHECKPOINT_DIR=/home/ps/openpi-docker-data/checkpoints/pi05_dobot_pen_box_servo_p_action_only/dobot_pen_box_servo_p_action_only_v1_long/135000
+export OPENPI_CHECKPOINT_CONTAINER_DIR=/workspace/checkpoints/pi05_dobot_pen_box_servo_p_action_only/dobot_pen_box_servo_p_action_only_v1_long/135000
+make policy-real
+```
+
+默认起始位是 `data/servo_p_v2/servo_p_start_pose.json`。脚本会启动或复用 OpenPI Policy
+Server，跳过已安装 ROS 包的重复构建，初始化夹爪并回到起点，然后进入暖会话：
+
+| 按键 | 动作 |
+|---|---|
+| `r` | 停止当前 episode，打开夹爪、回起点并重新运行 |
+| `q` / `Ctrl-C` | 停止 policy、停止运动并退出 |
+
+不要在同一时间运行 `make system`、`make joy` 或其他运动节点。首次换 checkpoint 先运行
+`make policy-dry-run`，确认双相机、state、Policy Server 和 `(16, 7)` action 均正常，再运行
+`make policy-real`。
+
+### 3. 数据、训练和部署日志
+
+运行数据统一位于 `data/`；构建产物 `log/` 和运行时日志 `logs/` 保持分开：
+
+```text
+data/raw/                 原始 episode、任务文本和起始位
+data/lerobot/             LeRobot v3 数据集
+data/handeye/             手眼标定样本
+data/trajectories/        示教轨迹
+logs/system/run_*/        make system 的 launch、health、events 和节点日志
+logs/policy/              policy JSONL、可读文本日志和观测 artifacts
+logs/ros_policy_*/        policy launch 的 ROS 底层日志
+log/                      colcon 构建日志（工具默认目录，不与运行日志混用）
+```
+
+`logs/policy/*.jsonl` 是机器可解析的完整记录；同名 `.log` 是按时间、事件和关键字段整理的
+人类可读版本，颜色只用于终端输出，不污染 JSONL。异常时优先查看最新文件：
+
+```bash
+find logs/policy -maxdepth 1 -type f -printf '%T@ %p\n' | sort -n | tail
+make logs-latest
+```
 
 Web 控制台默认地址：`http://localhost:8080`。可用 `CONSOLE_PORT` 覆盖端口。
 
@@ -278,6 +357,7 @@ make data-status
 | `JOY_ESTOP_BUTTON` | `1` | 急停按钮，默认 B |
 | `JOY_TOGGLE_ENABLE_BUTTON` | `3` | enable/disable 切换按钮，默认 Y |
 | `JOY_TOGGLE_DRAG_BUTTON` | `5` | 拖拽模式开关按钮，默认 RB |
+| `JOY_COLLECTION_PREPARE_HOLD_SEC` | `1.5` | Start/X 长按回位或保存起始位的最短持续时间 |
 | `JOY_DEADZONE` | `0.25` | 摇杆死区 |
 | `JOY_CONTROL_MODE` | `move_jog` | `move_jog` 为兼容单轴点动；`servo_p` 为六维连续比例控制 |
 | `JOY_RESPONSE_EXPONENT` | `1.2` | `servo_p` 摇杆响应曲线；兼顾中心微调与低延迟响应 |
@@ -325,9 +405,11 @@ make data-status
 | A | 夹爪开/关切换 |
 | LT / RT | 按住夹爪持续关闭 / 打开，松开时主动读取实时开口并发送保持目标 |
 | B | 急停 |
-| X | 清除报警 |
-| Y | enable / disable 切换；报警状态下拒绝 enable |
+| X 短按 | 清除报警 |
+| X 长按 1.5 秒后松开 | 保存当前反馈为采集起始位，不运动 |
+| Y | enable / disable 切换；录制期间忽略，使用 Back 结束 episode 或 B 急停 |
 | RB | 开启 / 关闭拖拽模式，不录制轨迹 |
+| Start 长按 1.5 秒后松开 | 回到已保存的采集起点并校验；短按仍开始采集 |
 | Start 单击并松开 | 检查机器人、相机和反馈状态后开始一个遥操作训练 episode |
 | Back 单击并松开 | 第一次：停止并进入待审核；待审核时再次短按：接受并提交 LeRobot |
 | Back 长按 2 秒后松开 | 拒绝当前录制或待审核 episode，不提交 LeRobot，保留原始数据 |
@@ -335,7 +417,7 @@ make data-status
 | 松开 deadman | 立即结束 `MoveJog` 或 `ServoP` 控制流 |
 
 `servo_p` 模式会保留六个轴的同时输入，平移向量与旋转向量分别归一化，避免斜推时
-合速度超过限值；驱动端再做加速度斜坡，以 30 mm/s、10 deg/s 的保守上限积分目标。
+合速度超过限值；驱动端再做加速度斜坡，以 45 mm/s、15 deg/s 的适中上限积分目标。
 `ServoP` 当前只允许 `JOY_COORD_TYPE=0`。机器人报警、未使能、反馈超时、手柄命令
 超过 200 ms 未更新、关节接近软限位、TCP 超出工作空间、松开 LB、急停或节点退出
 时，驱动会进入安全保持或停止控制流；通信故障和其它运动模式切换会重建运动连接。
@@ -388,9 +470,15 @@ make data-task TASK:="pick up the tape roll"
 
 不带 `TASK` 执行 `make data-task` 可以查看当前任务。任务保存在 `data_collection/current_task.txt`，采集节点在每次按 Start 时重新读取，因此换任务不需要重启 `make joy`；已经开始的 episode 不会被中途改任务。任务为空时 Start 会拒绝采集，避免生成没有语言条件的训练 episode。
 
-运行 `make joy` 并使能机器人后，单独按下再松开 Start 开始采集；完成一次操作后短按 Back。第一次 Back 只等待原始图像队列清空并进入 `pending` 待审核状态，终端出现 `data collection pending review` 且手柄振动后，再查看画面和统计。确认质量合格后再次短按 Back，系统才通过官方 LeRobot API 追加 episode、编码两路 MP4 并调用 `finalize()`；终端出现 `data collection saved` 和较长振动才表示正式训练 episode 已提交。质量不合格时长按 Back 2 秒，系统标记 `rejected`，保留原始数据但不进入 LeRobot。不要同时按 Start 和 Back；该组合键保留给限位恢复。
+ServoP 采集建议以固定起点运行：先执行 `make servo-data-task TASK:="pick up the tape roll"`，再使用 `make servo-collect` 启动。它等价于以 ServoP 和强制起始位校验启动 `make system`，并创建独立的 `data_collection_servo_p` 原始数据目录、LeRobot 数据集和起始位文件，防止混入旧的 MoveJog 数据。起始位由操作者确定：短按 RB 进入拖拽，手动移动到安全、张开夹爪的标准姿态，再短按 RB 退出拖拽；随后长按 X 1.5 秒后松开，服务只把当前六轴关节角、TCP、夹爪开度和保存时间写入 `data_collection_servo_p/servo_p_start_pose.json`，不发送运动指令。`make data-set-start` 保留为相同服务的终端调试入口。之后每条 episode 前长按 Start 1.5 秒后松开，或执行 `make data-prepare`，它才会显式 MoveJ 回到该姿态、恢复保存的夹爪开度并校验关节容差；拖拽未退出时会拒绝回位。完成后再短按 Start。未执行 prepare、机器人离开容差或仍在拖拽模式都会拒绝 Start，避免把复位过程和不同起点写入训练数据。第一次 Back 只结束录制并进入审核，机械臂保持当前位置；审核时无论接受还是拒绝，最终都会自动打开夹爪并 MoveJ 回保存的起点，回位过程和结果写入 `events.jsonl`。
 
-待审核期间再次按 Start 会被拒绝，避免跳过质量确认。采集节点重启后会自动恢复最近的 pending episode；也可以使用 `make data-accept` 或 `make data-reject` 完成决定。`make data-status` 的 `phase` 会显示 `recording`、`pending` 或 `idle`。
+运行 `make joy` 并使能机器人后，单独按下再松开 Start 开始采集；完成一次操作后短按 Back。第一次 Back 等待原始图像队列清空并进入 `pending` 待审核状态，同时立即自动打开夹爪并 MoveJ 回保存的起点。确认质量合格后再次短按 Back，系统只把 LeRobot 转换任务放入后台队列并返回，不再重复回位；Qt 面板和 `make data-status` 可观察 `return_phase`、`export_phase`、当前 episode 和队列深度，后台完成后 metadata 才变为 `accepted`。质量不合格时长按 Back 2 秒，系统标记 `rejected`，保留原始数据但不进入 LeRobot，机械臂也不会再次移动。不要同时按 Start 和 Back；该组合键保留给限位恢复。
+
+待审核期间再次按 Start 会被拒绝，避免跳过质量确认。采集节点重启后会自动恢复最近的 pending episode，并重新排队 metadata 标记为 `export_queued` 的任务；也可以使用 `make data-accept` 或 `make data-reject` 完成决定。`make data-status` 的 `phase` 会显示 `recording`、`pending`、`exporting` 或 `idle`。
+
+ServoP 采集启动时默认打开只读 Qt 操作面板（普通 `make system` 默认关闭）。面板显示机器人使能/模式、采集阶段和样本数、自动回位阶段、LeRobot 导出队列、ServoP 实际速度、夹爪状态以及原始手柄 axes/buttons，并固定显示按键说明；面板不发送运动命令。
+
+Qt 面板还会以时间为 X 轴绘制六个关节角度和 Action 值；LeRobot 状态用绿色（成功）、橙色（排队/运行）、红色（失败）表示，手柄操作用按键状态块显示。
 
 Start 会检查 LeRobot v3 环境、任务文本、机器人连接/反馈/使能/报警状态，以及腕部/全局 Image、两份 CameraInfo、同步图像对、关节、TCP、夹爪、Joy 和 teleop action 的新鲜度。任一条件不满足都会拒绝开始并在终端打印原因。
 

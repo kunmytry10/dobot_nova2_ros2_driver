@@ -38,6 +38,7 @@ from .controller import (
 from .cartesian_servo import (
     NON_REVERSING_HOLD_REASONS,
     clamp_normalized_vector,
+    heartbeat_expired,
     integrate_pose,
     joints_within_margin,
     pose_within_workspace,
@@ -66,7 +67,9 @@ class DobotMotionServer(Node):
         self.controller = DobotController(
             config,
             feedback_callback=self._publish_feedback,
-            log_callback=lambda message: self.get_logger().warning(message),
+            log_callback=lambda message: (
+                self.get_logger().warning(message) if self.context.ok() else None
+            ),
         )
         self.limit_recovery = LimitRecoveryManager(
             self.controller,
@@ -80,6 +83,12 @@ class DobotMotionServer(Node):
         self.gripper_state_rate_hz = float(
             self.declare_parameter("gripper_state_rate_hz", 2.0).value
         )
+        self.move_jog_watchdog_sec = float(
+            self.declare_parameter("move_jog.watchdog_sec", 0.0).value
+        )
+        self._move_jog_watchdog_lock = threading.Lock()
+        self._move_jog_active = False
+        self._move_jog_last_command = 0.0
 
         self.joint_pub = self.create_publisher(JointState, "joint_states", 10)
         self.tcp_pub = self.create_publisher(Float64MultiArray, "tcp_pose", 10)
@@ -138,6 +147,8 @@ class DobotMotionServer(Node):
             callback_group=self.gripper_state_callback_group,
         )
         self.create_timer(0.1, self._limit_recovery_watchdog)
+        if self.move_jog_watchdog_sec > 0.0:
+            self.create_timer(0.05, self._move_jog_watchdog)
 
         if bool(self.declare_parameter("connect_on_start", True).value):
             try:
@@ -148,6 +159,11 @@ class DobotMotionServer(Node):
         self._start_cartesian_servo_loop()
 
     def destroy_node(self):
+        with self._move_jog_watchdog_lock:
+            move_jog_active = self._move_jog_active
+            self._move_jog_active = False
+        if move_jog_active:
+            self.controller.move_jog("", stop=True)
         self.servo_stop_event.set()
         if self.servo_thread is not None:
             self.servo_thread.join(timeout=1.0)
@@ -183,12 +199,12 @@ class DobotMotionServer(Node):
         )
         self.servo_max_translation_mm_s = float(
             self.declare_parameter(
-                "cartesian_servo.max_translation_speed_mm_s", 30.0
+                "cartesian_servo.max_translation_speed_mm_s", 45.0
             ).value
         )
         self.servo_max_rotation_deg_s = float(
             self.declare_parameter(
-                "cartesian_servo.max_rotation_speed_deg_s", 10.0
+                "cartesian_servo.max_rotation_speed_deg_s", 15.0
             ).value
         )
         self.servo_accel_normalized_s = float(
@@ -197,7 +213,7 @@ class DobotMotionServer(Node):
             ).value
         )
         self.servo_joint_margin_deg = float(
-            self.declare_parameter("cartesian_servo.joint_limit_margin_deg", 5.0).value
+            self.declare_parameter("cartesian_servo.joint_limit_margin_deg", 0.0).value
         )
         self.servo_workspace_min = self._float_list_parameter(
             "cartesian_servo.workspace_min",
@@ -273,9 +289,13 @@ class DobotMotionServer(Node):
             delay = next_tick - time.monotonic()
             if delay > 0.0 and self.servo_stop_event.wait(delay):
                 return
+            if not self.context.ok():
+                return
             try:
                 self._cartesian_servo_tick()
             except Exception as exc:
+                if not self.context.ok() or self.servo_stop_event.is_set():
+                    return
                 self.get_logger().error(f"Cartesian ServoP scheduler failed: {exc}")
             next_tick += period
             now = time.monotonic()
@@ -567,6 +587,8 @@ class DobotMotionServer(Node):
         status: str,
         force: bool = False,
     ):
+        if not self.context.ok():
+            return
         now = time.monotonic()
         period = (
             1.0 / self.servo_applied_rate_hz
@@ -850,6 +872,10 @@ class DobotMotionServer(Node):
             user=int(request.user),
             tool=int(request.tool),
         )
+        if result.success:
+            with self._move_jog_watchdog_lock:
+                self._move_jog_active = not bool(request.stop)
+                self._move_jog_last_command = time.monotonic()
         response.success = result.success
         response.error_id = int(result.error_id)
         response.message = result.message
@@ -863,6 +889,31 @@ class DobotMotionServer(Node):
                 f"move_jog rejected in {elapsed_ms:.1f} ms: {result.message}"
             )
         return response
+
+    def _move_jog_watchdog(self):
+        if self.move_jog_watchdog_sec <= 0.0:
+            return
+        now = time.monotonic()
+        with self._move_jog_watchdog_lock:
+            expired = heartbeat_expired(
+                self._move_jog_active,
+                self._move_jog_last_command,
+                now,
+                self.move_jog_watchdog_sec,
+            )
+            if expired:
+                self._move_jog_active = False
+        if not expired:
+            return
+        result = self.controller.move_jog("", stop=True)
+        if result.success:
+            self.get_logger().warning(
+                "MoveJog heartbeat watchdog stopped motion"
+            )
+        else:
+            self.get_logger().error(
+                "MoveJog heartbeat watchdog stop failed: " + result.message
+            )
 
     def _limit_recovery(
         self, request: LimitRecovery.Request, response: LimitRecovery.Response
@@ -1155,6 +1206,8 @@ class DobotMotionServer(Node):
         return f"robot_mode={robot_mode} {mode_text}".strip()
 
     def _publish_feedback(self, state: FeedbackState) -> None:
+        if not self.context.ok():
+            return
         now_sec = self.get_clock().now().nanoseconds / 1e9
         min_period = 1.0 / self.feedback_rate_hz if self.feedback_rate_hz > 0.0 else 0.0
         if min_period and now_sec - self._last_feedback_publish < min_period:
@@ -1192,6 +1245,8 @@ class DobotMotionServer(Node):
         self.dobot_state_pub.publish(dobot_state)
 
     def _publish_gripper_state(self) -> None:
+        if not self.context.ok():
+            return
         self.gripper_state_pub.publish(self._gripper_status_message(self.gripper.state()))
 
     def _gripper_status_message(self, result: GripperResult) -> GripperStatus:
@@ -1223,6 +1278,12 @@ def main(args=None):
         executor.spin()
     except KeyboardInterrupt:
         pass
+    except Exception:
+        # ros2 launch can invalidate the shared context before spin() returns.
+        # That is a normal shutdown race, not a driver failure; preserve any
+        # exception raised while the context is still live.
+        if rclpy.ok():
+            raise
     finally:
         executor.shutdown()
         node.destroy_node()

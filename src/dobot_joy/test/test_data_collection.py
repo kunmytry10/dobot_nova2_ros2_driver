@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -40,8 +41,67 @@ def _ready_robot_state(node):
         {
             "cartesian_jog_normalized": [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             "gripper_target_normalized": 0.5,
+            "gripper_target_mm": 42.0,
         },
     )
+
+
+def test_collection_start_pose_requires_joint_and_gripper_tolerance():
+    node = type("Node", (), {})()
+    node._start_pose = {
+        "joints_deg": [0.0] * 6,
+        "gripper_opening_mm": 95.0,
+    }
+    node.start_joint_tolerance_deg = 1.0
+    node.start_gripper_tolerance_mm = 3.0
+    node._latest = {
+        "joints": {"position_rad": [0.0] * 6},
+        "gripper": {"opening_mm": 95.0},
+    }
+    node._start_pose_feedback_ready = lambda: (True, "ready")
+
+    ready, _ = DataCollectionNode._at_start_pose(node)
+    assert ready is True
+
+    node._latest["joints"]["position_rad"][0] = np.deg2rad(1.1)
+    ready, message = DataCollectionNode._at_start_pose(node)
+    assert ready is False
+    assert "start-pose tolerance" in message
+
+    node._latest["joints"]["position_rad"][0] = 0.0
+    node._latest["gripper"]["opening_mm"] = 90.0
+    ready, message = DataCollectionNode._at_start_pose(node)
+    assert ready is False
+    assert "gripper" in message
+
+
+def test_collection_rejects_stale_gripper_action_target():
+    node = type("Node", (), {})()
+    node.require_start_pose = False
+    node.lerobot_enabled = False
+    node.task_instruction = "pick up the tape roll"
+    node.sample_rate_hz = 10.0
+    node.state_timeout_sec = 1.0
+    node.start_gripper_tolerance_mm = 3.0
+    node._required_sources = lambda: DataCollectionNode._required_sources(node)
+    required = DataCollectionNode._required_sources(node)
+    node._received = {name: time.monotonic() for name in required}
+    node._latest = {
+        "robot": {
+            "connected": True,
+            "feedback_valid": True,
+            "enable_status": 1,
+            "error_status": 0,
+            "robot_mode": 5,
+        },
+        "gripper": {"opening_mm": 95.0},
+        "action": {"gripper_target_mm": 0.0},
+    }
+
+    ready, message = DataCollectionNode._ready_to_start(node)
+
+    assert ready is False
+    assert "feedback and action target disagree" in message
 
 
 def test_episode_writes_synchronized_wrist_and_global_images(tmp_path):
@@ -173,9 +233,11 @@ def test_pending_episode_requires_accept_before_lerobot_commit(tmp_path):
         }
 
         response = node._accept(None, Trigger.Response())
+        node._export_queue.join()
 
         metadata = json.loads((episode_dir / "metadata.json").read_text())
         assert response.success is True
+        assert "queued" in response.message
         assert node._pending_session_dir is None
         assert metadata["curation_status"] == "accepted"
         assert metadata["episode_success"] is True

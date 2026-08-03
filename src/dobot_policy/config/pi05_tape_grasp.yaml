@@ -1,0 +1,45 @@
+dobot_policy_node:
+  ros__parameters:
+    policy_host: "127.0.0.1"
+    policy_port: 8000
+    prompt: "pick the pen and put it in the box"
+    control_mode: "servo_p"
+    servo_command_topic: "/cartesian_servo/command"
+    disable_policy_proxy: true
+
+    wrist_image_topic: "/camera/color/image_raw"
+    global_image_topic: "/global_camera/color/image_raw"
+    image_sync_queue_size: 20
+    max_image_skew_sec: 0.05
+
+    armed: false
+    auto_start: false
+    auto_enable_robot: false
+    auto_init_gripper: false
+    control_rate_hz: 10.0
+    action_horizon: 16
+    steps_per_inference: 4
+    inference_lead_steps: 2
+    inference_timeout_sec: 15.0
+    source_timeout_sec: 1.0
+    startup_timeout_sec: 20.0
+    max_episode_sec: 45.0
+
+    move_threshold: 0.50
+    minimum_axis_margin: 0.15
+    allow_rotation: false
+    coord_type: 0
+    user: 0
+    tool: 0
+    # Accepted ServoP demonstrations contain X/Y/Z/Rz motion. Rx/Ry were zero.
+    servo_deadband: 0.03
+    servo_axis_scales: [1.0, 1.0, 1.0, 0.0, 0.0, 1.0]
+
+    gripper_min_opening_mm: 0.0
+    gripper_max_opening_mm: 95.0
+    gripper_open_threshold: 0.5
+    gripper_force_percent: 50
+    gripper_command_delta_mm: 5.0
+    gripper_command_period_sec: 0.5
+    gripper_timeout_sec: 3.0
+    log_root: "logs/policy"

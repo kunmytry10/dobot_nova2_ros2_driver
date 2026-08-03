@@ -2,7 +2,7 @@ from glob import glob
 from setuptools import setup
 
 
-package_name = "dobot_joy"
+package_name = "dobot_policy"
 
 setup(
     name=package_name,
@@ -11,20 +11,18 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
+        (f"share/{package_name}/config", glob("config/*.yaml")),
         (f"share/{package_name}/launch", glob("launch/*.py")),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="user",
     maintainer_email="user@example.com",
-    description="Joystick teleoperation tools for Dobot ROS2 workspaces.",
+    description="Closed-loop OpenPI policy deployment for Dobot Nova2.",
     license="MIT",
     entry_points={
         "console_scripts": [
-            "dobot_joy_teleop = dobot_joy.joy_teleop:main",
-            "dobot_data_collection = dobot_joy.data_collection:main",
-            "dobot_data_validate = dobot_joy.data_validate:main",
-            "dobot_operator_panel = dobot_joy.operator_panel:main",
+            "dobot_policy_node = dobot_policy.policy_node:main",
         ],
     },
 )

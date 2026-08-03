@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from dobot_ros2.cartesian_servo import (
     clamp_normalized_vector,
+    heartbeat_expired,
     integrate_pose,
     joints_within_margin,
     pose_within_workspace,
@@ -23,6 +24,13 @@ def test_servo_vector_is_clamped_and_slew_limited():
         0.0,
         0.0,
     ]
+
+
+def test_move_jog_heartbeat_expires_only_when_active_and_overdue():
+    assert heartbeat_expired(True, 10.0, 10.51, 0.5)
+    assert not heartbeat_expired(True, 10.0, 10.49, 0.5)
+    assert not heartbeat_expired(False, 10.0, 20.0, 0.5)
+    assert not heartbeat_expired(True, 10.0, 20.0, 0.0)
 
 
 def test_servo_pose_integrates_all_six_axes():

@@ -14,6 +14,7 @@ def generate_launch_description():
             DeclareLaunchArgument("dev", default_value="/dev/input/js0"),
             DeclareLaunchArgument("autorepeat_rate", default_value="50.0"),
             DeclareLaunchArgument("start_data_collection", default_value="true"),
+            DeclareLaunchArgument("start_operator_panel", default_value="false"),
             DeclareLaunchArgument("dataset_root", default_value="data_collection"),
             DeclareLaunchArgument(
                 "wrist_image_topic", default_value="/camera/color/image_raw"
@@ -30,6 +31,15 @@ def generate_launch_description():
                 default_value="/global_camera/color/camera_info",
             ),
             DeclareLaunchArgument("data_sample_rate_hz", default_value="10.0"),
+            DeclareLaunchArgument("collection_require_start_pose", default_value="false"),
+            DeclareLaunchArgument("collection_start_pose_file", default_value=""),
+            DeclareLaunchArgument("collection_start_joint_tolerance_deg", default_value="1.0"),
+            DeclareLaunchArgument("collection_start_gripper_tolerance_mm", default_value="3.0"),
+            DeclareLaunchArgument("collection_prepare_speed", default_value="10"),
+            DeclareLaunchArgument("collection_prepare_acceleration", default_value="10"),
+            DeclareLaunchArgument("collection_prepare_timeout_sec", default_value="30.0"),
+            DeclareLaunchArgument("collection_auto_return_after_stop", default_value="true"),
+            DeclareLaunchArgument("collection_auto_return_opening_mm", default_value="95.0"),
             DeclareLaunchArgument("max_image_skew_sec", default_value="0.05"),
             DeclareLaunchArgument("task_instruction", default_value=""),
             DeclareLaunchArgument("task_file", default_value=""),
@@ -48,6 +58,7 @@ def generate_launch_description():
             DeclareLaunchArgument("toggle_gripper_button_index", default_value="0"),
             DeclareLaunchArgument("toggle_enable_button_index", default_value="3"),
             DeclareLaunchArgument("toggle_drag_button_index", default_value="5"),
+            DeclareLaunchArgument("collection_prepare_hold_sec", default_value="1.5"),
             DeclareLaunchArgument("clear_error_button_index", default_value="2"),
             DeclareLaunchArgument("deadzone", default_value="0.25"),
             DeclareLaunchArgument("control_mode", default_value="move_jog"),
@@ -67,7 +78,7 @@ def generate_launch_description():
             DeclareLaunchArgument("gripper_stop_lead_mm", default_value="3.0"),
             DeclareLaunchArgument("gripper_force_percent", default_value="50"),
             DeclareLaunchArgument("enable_rumble", default_value="true"),
-            DeclareLaunchArgument("joint_limit_margin_deg", default_value="5.0"),
+            DeclareLaunchArgument("joint_limit_margin_deg", default_value="0.0"),
             DeclareLaunchArgument("limit_recovery_hold_sec", default_value="3.0"),
             DeclareLaunchArgument("data_reject_hold_sec", default_value="2.0"),
             DeclareLaunchArgument(
@@ -113,6 +124,31 @@ def generate_launch_description():
                             LaunchConfiguration("data_sample_rate_hz"),
                             value_type=float,
                         ),
+                        "collection.require_start_pose": ParameterValue(
+                            LaunchConfiguration("collection_require_start_pose"), value_type=bool
+                        ),
+                        "collection.start_pose_file": LaunchConfiguration("collection_start_pose_file"),
+                        "collection.start_joint_tolerance_deg": ParameterValue(
+                            LaunchConfiguration("collection_start_joint_tolerance_deg"), value_type=float
+                        ),
+                        "collection.start_gripper_tolerance_mm": ParameterValue(
+                            LaunchConfiguration("collection_start_gripper_tolerance_mm"), value_type=float
+                        ),
+                        "collection.prepare_speed": ParameterValue(
+                            LaunchConfiguration("collection_prepare_speed"), value_type=int
+                        ),
+                        "collection.prepare_acceleration": ParameterValue(
+                            LaunchConfiguration("collection_prepare_acceleration"), value_type=int
+                        ),
+                        "collection.prepare_timeout_sec": ParameterValue(
+                            LaunchConfiguration("collection_prepare_timeout_sec"), value_type=float
+                        ),
+                        "collection.auto_return_after_stop": ParameterValue(
+                            LaunchConfiguration("collection_auto_return_after_stop"), value_type=bool
+                        ),
+                        "collection.auto_return_opening_mm": ParameterValue(
+                            LaunchConfiguration("collection_auto_return_opening_mm"), value_type=float
+                        ),
                         "task_instruction": LaunchConfiguration(
                             "task_instruction"
                         ),
@@ -141,6 +177,13 @@ def generate_launch_description():
             ),
             Node(
                 package="dobot_joy",
+                executable="dobot_operator_panel",
+                name="dobot_operator_panel",
+                output="screen",
+                condition=IfCondition(LaunchConfiguration("start_operator_panel")),
+            ),
+            Node(
+                package="dobot_joy",
                 executable="dobot_joy_teleop",
                 name="dobot_joy_teleop",
                 output="screen",
@@ -164,6 +207,10 @@ def generate_launch_description():
                         "joy.toggle_drag_button_index": ParameterValue(
                             LaunchConfiguration("toggle_drag_button_index"),
                             value_type=int,
+                        ),
+                        "joy.collection_prepare_hold_sec": ParameterValue(
+                            LaunchConfiguration("collection_prepare_hold_sec"),
+                            value_type=float,
                         ),
                         "joy.clear_error_button_index": ParameterValue(
                             LaunchConfiguration("clear_error_button_index"),

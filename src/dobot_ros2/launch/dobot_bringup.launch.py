@@ -5,6 +5,7 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -17,6 +18,7 @@ def _launch_setup(context, *args, **kwargs):
     handeye_tf = LaunchConfiguration("handeye_tf").perform(context).lower()
     handeye_result_file = LaunchConfiguration("handeye_result_file").perform(context)
     handeye_output_child_frame = LaunchConfiguration("handeye_output_child_frame")
+    move_jog_watchdog_sec = LaunchConfiguration("move_jog_watchdog_sec")
     urdf_file = LaunchConfiguration("urdf_file").perform(context)
 
     with open(urdf_file, "r", encoding="utf-8") as file:
@@ -29,7 +31,14 @@ def _launch_setup(context, *args, **kwargs):
             name="dobot_motion_server",
             namespace=namespace,
             output="screen",
-            parameters=[params_file],
+            parameters=[
+                params_file,
+                {
+                    "move_jog.watchdog_sec": ParameterValue(
+                        move_jog_watchdog_sec, value_type=float
+                    )
+                },
+            ],
         ),
         Node(
             package="robot_state_publisher",
@@ -91,6 +100,7 @@ def generate_launch_description():
             DeclareLaunchArgument("handeye_tf", default_value="true"),
             DeclareLaunchArgument("handeye_result_file", default_value=""),
             DeclareLaunchArgument("handeye_output_child_frame", default_value="camera_link"),
+            DeclareLaunchArgument("move_jog_watchdog_sec", default_value="0.0"),
             OpaqueFunction(function=_launch_setup),
         ]
     )

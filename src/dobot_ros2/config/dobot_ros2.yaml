@@ -126,10 +126,10 @@
     cartesian_servo.feedback_watchdog_sec: 0.25
     cartesian_servo.transport_watchdog_sec: 0.2
     cartesian_servo.applied_rate_hz: 20.0
-    cartesian_servo.max_translation_speed_mm_s: 30.0
-    cartesian_servo.max_rotation_speed_deg_s: 10.0
+    cartesian_servo.max_translation_speed_mm_s: 45.0
+    cartesian_servo.max_rotation_speed_deg_s: 15.0
     cartesian_servo.acceleration_normalized_s: 16.0
-    cartesian_servo.joint_limit_margin_deg: 5.0
+    cartesian_servo.joint_limit_margin_deg: 0.0
     cartesian_servo.workspace_min: [-625.0, -625.0, 20.0, -360.0, -360.0, -360.0]
     cartesian_servo.workspace_max: [625.0, 625.0, 625.0, 360.0, 360.0, 360.0]
     cartesian_servo.workspace_max_xy_radius_mm: 625.0

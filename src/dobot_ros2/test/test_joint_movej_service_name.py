@@ -126,6 +126,35 @@ def test_prepared_servo_p_skips_per_tick_connect_check():
     ]
 
 
+def test_prepare_servo_stream_reconnects_after_request_reply_motion():
+    class FakeSocket:
+        def recv(self, size, flags=0):
+            del size, flags
+            raise BlockingIOError()
+
+    controller = DobotController(ControllerConfig())
+    controller.move_client = SimpleNamespace(socket_dobot=FakeSocket())
+    controller._move_channel_needs_stream_reconnect = True
+    reconnects = []
+    controller.connect = lambda: None
+    controller._reconnect_move_client = lambda: reconnects.append(True)
+
+    controller.prepare_servo_stream()
+
+    assert reconnects == [True]
+
+
+def test_request_reply_move_marks_stream_channel_for_reconnect():
+    controller = DobotController(ControllerConfig())
+    controller.move_client = object()
+    controller._send = lambda *_args: "0,{},JointMovJ();"
+
+    reply = controller._send_move("JointMovJ(1,2,3,4,5,6)", 3.0)
+
+    assert reply == "0,{},JointMovJ();"
+    assert controller._move_channel_needs_stream_reconnect is True
+
+
 def test_streaming_send_drains_replies_without_waiting():
     class FakeSocket:
         def __init__(self):

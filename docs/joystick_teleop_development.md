@@ -13,17 +13,23 @@
 - Y 键切换 enable/disable，RB 键切换纯拖拽模式。
 - 机械臂接近关节软限位、报警、未使能或反馈无效时拒绝继续 jog。
 - 夹爪夹住物体时尝试通过 `/joy/set_feedback` 触发手柄短震动。
-- Start/Back 控制手柄遥操作训练 episode 的开始和保存。
+- X 短按清报警，长按 1.5 秒后松开保存当前采集起点；Start 短按开始遥操作训练 episode，长按 1.5 秒后松开请求回到采集起点；Back 控制停止、审核和拒绝。
+- 录制期间 Y 的 enable/disable 切换被锁定，避免误按导致 ServoP 失效；紧急停止始终使用 B。
+- ServoP 采集在固定起点模式下要求先保存标准起始反馈，再显式 prepare 回位后才允许 Start；拖拽模式下 prepare 和录制都会被拒绝。
+- 第一次 Back 停止录制并立即自动先打开夹爪、再 MoveJ 回保存起点，然后进入审核；接受或拒绝只处理数据，不重复移动。LeRobot 转换由 FIFO 后台 worker 异步执行，手柄只收到“已排队”反馈，不等待视频编码完成。
+- `make servo-collect` 启动只读 Qt 操作面板，显示机器人、ServoP、夹爪、采集和导出队列状态以及按键说明；面板不发送运动命令。
 - 腕部 Orbbec 和全局 RealSense 图像按时间戳近似同步后成对写入。
 - Back+Start 长按进入带自动回抱保护的关节限位恢复。
 
 ## 实现路径
 
+Qt 面板使用实时曲线显示六个关节角度和 Action 值，并用颜色区分 LeRobot 转换的成功、运行和失败状态，同时显示手柄按键状态。
+
 手柄功能放在独立包 `dobot_joy` 中，不放进基础驱动包：
 
 - `joy_node` 负责从 `/dev/input/js0` 读取手柄并发布 `/joy`。
 - `dobot_joy_teleop` 订阅 `/joy`；兼容模式转换为 `/move_jog` service，自由控制模式发布六维 `/cartesian_servo/command`。
-- 自由控制模式由驱动以官方建议的 33 Hz 调用 `ServoP(X,Y,Z,Rx,Ry,Rz)`，支持六轴组合、摇杆比例、死区响应和加速度斜坡。
+- 自由控制模式由驱动以官方建议的 33 Hz 调用 `ServoP(X,Y,Z,Rx,Ry,Rz)`，支持六轴组合、摇杆比例、死区响应和加速度斜坡，默认平移/旋转上限为 45 mm/s 和 15 deg/s。
 - 夹爪控制调用 `/gripper_move` 和 `/get_gripper_state`。
 
 当前启动命令：
@@ -81,7 +87,9 @@ JOY_CONTROL_MODE=servo_p JOY_LEROBOT_ENABLED=false make system
 | Y | enable/disable 切换 |
 | RB | 拖拽模式开启/关闭 |
 | Start 单击 | 开始遥操作训练 episode |
-| Back 单击 | 停止并保存 episode |
+| Start 长按 1.5 秒后松开 | 回到保存的采集起点并校验反馈 |
+| X 长按 1.5 秒后松开 | 保存当前反馈为采集起点，不发送运动指令 |
+| Back 单击 | 第一次停止、回位并进入审核；第二次接受数据 |
 | Back + Start 长按 | 限位恢复，松开任意键重新抱闸 |
 
 如果现场某个方向反了，优先改符号参数，例如：
@@ -173,13 +181,13 @@ ROS2 Humble `joy_node` 在 `/joy/set_feedback` 订阅的是单条 `sensor_msgs/m
 - action：`move_jog` 时记录 `[X,Y,Z,Rx,Ry,Rz]` 固定速率方向；`servo_p` 时记录驱动实际应用的六维连续归一化速度和夹爪目标。
 - debug：原始 Joy axes/buttons 和离散事件。
 
-两种相机没有硬件同步，ROS 时间戳近似同步容差默认 50 ms。Start 前会检查两路 Image、两份 CameraInfo、同步图像对、其他数据源新鲜度和机器人状态。数据通过有界后台队列成对写盘，Back 等待队列清空后结束。
+两种相机没有硬件同步，ROS 时间戳近似同步容差默认 50 ms。Start 前会检查两路 Image、两份 CameraInfo、同步图像对、其他数据源新鲜度和机器人状态。数据通过有界后台队列成对写盘，Back 等待队列清空后结束；第一次 Back 会自动开夹爪并回到保存起点，回位事件写入 episode 日志，后续接受或拒绝不重复移动。
 
 采集器按固定 FPS 时间槽记录：10 Hz 时 `frame_slot/t` 为 `0/0.0, 1/0.1...`。时间戳在同步图像回调中确定，不使用后台写盘完成时间。相机发布频率应高于采样频率；若同步源未覆盖某个时间槽，记录 `missed_sample_slots` 并将 episode 标记为不完整，禁止导入 LeRobot。只有存在样本且没有漏槽、队列丢帧或写入错误时，`metadata.json` 才标记 `complete=true`。
 
 统一启动每次创建 `logs/run_*/`，`manifest.json` 记录版本、任务和模式，`events.jsonl` 记录状态变化和 teleop/采集结果，`health.jsonl` 记录每秒就绪状态及相机实际帧率，`launch.log` 和 `ros/` 保存完整进程日志。
 
-双相机原始 sidecar 使用 `format_version=2`，分别保存到 `images/wrist`、`images/global` 和 `camera_info/wrist.json`、`camera_info/global.json`。第一次 Back 后进入 pending 审核，第二次短按 Back 才通过隔离的 Python 3.12 环境和官方 LeRobot API 追加到 Dataset v3.0；长按 Back 标记 rejected，不进入训练集。数据包含 `observation.state`、`action`、`observation.images.wrist`、`observation.images.global` 和 task。使用 `make data-validate EPISODE:=...` 检查原始数据，使用 `make data-lerobot-validate` 通过官方加载器检查训练数据集。
+双相机原始 sidecar 使用 `format_version=2`，分别保存到 `images/wrist`、`images/global` 和 `camera_info/wrist.json`、`camera_info/global.json`。第一次 Back 后进入 pending 审核，第二次短按 Back 立即将任务放入 FIFO 队列，由后台线程通过隔离的 Python 3.12 环境和官方 LeRobot API 追加到 Dataset v3.0；长按 Back 标记 rejected，不进入训练集。数据包含 `observation.state`、`action`、`observation.images.wrist`、`observation.images.global` 和 task。使用 `make data-status` 查看 `export_phase` 和队列深度，使用 `make data-validate EPISODE:=...` 检查原始数据，使用 `make data-lerobot-validate` 通过官方加载器检查训练数据集。
 
 两种控制模式的 action 名称与物理语义不同，导出器会拒绝将 `servo_p` episode 追加到
 旧的 `move_jog` 数据集。自由控制正式采集必须换用新的 dataset root/repo id。

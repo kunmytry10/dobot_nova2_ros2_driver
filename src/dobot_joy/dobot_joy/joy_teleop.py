@@ -66,6 +66,10 @@ class JoyTeleopNode(Node):
         self.back_button_index = int(
             self.get_parameter("joy.back_button_index").value
         )
+        self.collection_prepare_hold_sec = max(
+            1.0,
+            float(self.get_parameter("joy.collection_prepare_hold_sec").value),
+        )
         self.data_reject_hold_sec = max(
             0.5,
             float(self.get_parameter("joy.data_reject_hold_sec").value),
@@ -174,9 +178,12 @@ class JoyTeleopNode(Node):
         self.start_back_chord_seen = False
         self.start_back_chord_started = 0.0
         self.back_pressed_at = 0.0
+        self.start_pressed_at = 0.0
+        self.clear_error_pressed_at = 0.0
         self.limit_recovery_pending = False
         self.limit_recovery_released = False
         self.limit_recovery_released_at = 0.0
+        self.collection_recording = False
         self.control_callback_group = MutuallyExclusiveCallbackGroup()
         self.jog_client = self.create_client(
             JogCommand,
@@ -244,6 +251,16 @@ class JoyTeleopNode(Node):
         self.data_reject_client = self.create_client(
             Trigger,
             "/data_collection/reject",
+            callback_group=self.control_callback_group,
+        )
+        self.data_prepare_client = self.create_client(
+            Trigger,
+            "/data_collection/prepare",
+            callback_group=self.control_callback_group,
+        )
+        self.data_set_start_pose_client = self.create_client(
+            Trigger,
+            "/data_collection/set_start_pose",
             callback_group=self.control_callback_group,
         )
         self.limit_recovery_client = self.create_client(
@@ -325,6 +342,7 @@ class JoyTeleopNode(Node):
         self.declare_parameter("joy.stop_button_indices", [6, 7])
         self.declare_parameter("joy.start_button_index", 7)
         self.declare_parameter("joy.back_button_index", 6)
+        self.declare_parameter("joy.collection_prepare_hold_sec", 1.5)
         self.declare_parameter("joy.data_reject_hold_sec", 2.0)
         self.declare_parameter("joy.limit_recovery_hold_sec", 3.0)
         self.declare_parameter("joy.limit_recovery_release_timeout_sec", 10.0)
@@ -360,7 +378,7 @@ class JoyTeleopNode(Node):
         self.declare_parameter("joy.rumble_duration_sec", 0.2)
         self.declare_parameter("joy.rumble_intensity", 0.7)
         self.declare_parameter("joy.joint_limit_check", True)
-        self.declare_parameter("joy.joint_limit_margin_deg", 5.0)
+        self.declare_parameter("joy.joint_limit_margin_deg", 0.0)
         self.declare_parameter(
             "joint_lower_limits_deg",
             [-360.0, -180.0, -156.0, -360.0, -360.0, -360.0],
@@ -417,6 +435,14 @@ class JoyTeleopNode(Node):
         back_pressed = button_pressed(msg.buttons, self.back_button_index)
         previous_start = button_pressed(self.latest_buttons, self.start_button_index)
         previous_back = button_pressed(self.latest_buttons, self.back_button_index)
+        clear_error_pressed = button_pressed(
+            msg.buttons, self.clear_error_button_index
+        )
+        previous_clear_error = button_pressed(
+            self.latest_buttons, self.clear_error_button_index
+        )
+        if start_pressed and not previous_start:
+            self.start_pressed_at = joy_time
         if back_pressed and not previous_back:
             self.back_pressed_at = joy_time
         if start_pressed and back_pressed:
@@ -445,7 +471,16 @@ class JoyTeleopNode(Node):
             return
 
         if previous_start and not start_pressed:
-            self._call_data_collection(self.data_start_client, "start")
+            held_sec = (
+                joy_time - self.start_pressed_at
+                if self.start_pressed_at > 0.0
+                else 0.0
+            )
+            if held_sec >= self.collection_prepare_hold_sec:
+                self._call_data_collection(self.data_prepare_client, "prepare")
+            else:
+                self._call_data_collection(self.data_start_client, "start")
+            self.start_pressed_at = 0.0
         if previous_back and not back_pressed:
             held_sec = (
                 joy_time - self.back_pressed_at
@@ -457,8 +492,21 @@ class JoyTeleopNode(Node):
             else:
                 self._call_data_collection(self.data_stop_client, "stop")
             self.back_pressed_at = 0.0
-        if self._button_edge(msg.buttons, self.clear_error_button_index):
-            self._clear_error()
+        if clear_error_pressed and not previous_clear_error:
+            self.clear_error_pressed_at = joy_time
+        if previous_clear_error and not clear_error_pressed:
+            held_sec = (
+                joy_time - self.clear_error_pressed_at
+                if self.clear_error_pressed_at > 0.0
+                else 0.0
+            )
+            if held_sec >= self.collection_prepare_hold_sec:
+                self._call_data_collection(
+                    self.data_set_start_pose_client, "set_start_pose"
+                )
+            else:
+                self._clear_error()
+            self.clear_error_pressed_at = 0.0
             self.latest_buttons = list(msg.buttons)
             return
         if self._button_edge(msg.buttons, self.toggle_enable_button_index):
@@ -662,6 +710,12 @@ class JoyTeleopNode(Node):
 
     def _call_data_collection(self, client, action: str):
         self._stop_jog(force=True)
+        if action == "start":
+            # Auto-return is owned by the recorder and can move the gripper
+            # without changing this node's cached action target. Publish the
+            # physical start state before the recorder may create frame zero.
+            self._sync_gripper_target_for_recording()
+            self._publish_action()
         if not client.wait_for_service(timeout_sec=0.1):
             self.get_logger().error(
                 f"data collection {action} unavailable; recorder is not running"
@@ -677,6 +731,11 @@ class JoyTeleopNode(Node):
         try:
             response = future.result()
             if response.success:
+                if action == "start":
+                    self._sync_gripper_target_for_recording()
+                    self.collection_recording = True
+                elif action in {"stop", "reject"}:
+                    self.collection_recording = False
                 self.get_logger().info(response.message)
                 if action == "start":
                     self._start_rumble_pattern(0.35, 0.5)
@@ -699,6 +758,20 @@ class JoyTeleopNode(Node):
             )
         except Exception as exc:  # pragma: no cover - ROS callback safety
             self.get_logger().error(f"data collection {action} failed: {exc}")
+
+    def _sync_gripper_target_for_recording(self):
+        """Match the action target to feedback after external prepare/return moves."""
+        if self.latest_gripper_opening_mm is None:
+            return
+        midpoint = 0.5 * (
+            self.gripper_min_opening_mm + self.gripper_max_opening_mm
+        )
+        self.gripper_target_mm = (
+            self.gripper_max_opening_mm
+            if self.latest_gripper_opening_mm >= midpoint
+            else self.gripper_min_opening_mm
+        )
+        self.gripper_action = "hold"
 
     def _prepare_limit_recovery(self):
         self._stop_jog(force=True)
@@ -802,6 +875,19 @@ class JoyTeleopNode(Node):
 
     def _toggle_enable(self):
         self._stop_jog(force=True)
+        if self.collection_recording:
+            self.get_logger().warn(
+                "enable toggle rejected while data collection is active; "
+                "use Back to finish the episode or B for emergency stop"
+            )
+            self._start_rumble_pattern(0.2, 0.3)
+            self._publish_diagnostic(
+                {
+                    "event": "enable_toggle_rejected",
+                    "reason": "data_collection_active",
+                }
+            )
+            return
         if self.latest_state is None:
             self.get_logger().warn("enable toggle rejected: no dobot_state received yet")
             return
@@ -876,7 +962,13 @@ class JoyTeleopNode(Node):
             if self.active_gripper_axis is not None:
                 released_axis = self.active_gripper_axis
                 self.active_gripper_axis = None
-                self._stop_gripper_motion(released_axis)
+                if self.collection_recording:
+                    # A recorded gripper command is a latched binary target.
+                    # Releasing the trigger must not create an intermediate
+                    # opening label or stop the gripper mid-stroke.
+                    self.gripper_action = "hold"
+                else:
+                    self._stop_gripper_motion(released_axis)
             return
 
         if requested_axis == self.active_gripper_axis:
@@ -1137,16 +1229,18 @@ class JoyTeleopNode(Node):
         message.user = int(self.user)
         message.tool = int(self.tool)
         message.gripper_action = str(self.gripper_action)
-        message.gripper_target_mm = float(self.gripper_target_mm)
-        stroke = self.gripper_max_opening_mm - self.gripper_min_opening_mm
+        # The trained action is intentionally binary: fully closed (0) or
+        # fully open (1). Physical feedback remains continuous in the
+        # observation, but an intermediate manual target must never leak into
+        # the supervised action label.
+        discrete_target_mm = (
+            self.gripper_max_opening_mm
+            if self.gripper_target_mm > self.gripper_toggle_threshold_mm
+            else self.gripper_min_opening_mm
+        )
+        message.gripper_target_mm = float(discrete_target_mm)
         message.gripper_target_normalized = (
-            clamp(
-                (self.gripper_target_mm - self.gripper_min_opening_mm) / stroke,
-                0.0,
-                1.0,
-            )
-            if stroke > 0.0
-            else 0.0
+            1.0 if discrete_target_mm == self.gripper_max_opening_mm else 0.0
         )
         self.action_pub.publish(message)
 
