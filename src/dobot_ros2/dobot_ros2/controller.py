@@ -210,7 +210,7 @@ class ControllerConfig:
     ik_check: bool = True
     ik_use_joint_near: bool = True
     enable_on_start: bool = False
-    teach_trajectory_dir: str = "/home/ros/ws/trajectories"
+    teach_trajectory_dir: str = "/home/ros/ws/data/trajectories"
     teach_sample_rate_hz: float = 5.0
     teach_min_joint_delta_deg: float = 0.5
     teach_min_tcp_delta_mm: float = 1.0

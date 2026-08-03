@@ -165,9 +165,10 @@ Server，跳过已安装 ROS 包的重复构建，初始化夹爪并回到起点
 运行数据统一位于 `data/`；构建产物 `log/` 和运行时日志 `logs/` 保持分开：
 
 ```text
-data/raw/                 原始 episode、任务文本和起始位
-data/lerobot/             LeRobot v3 数据集
-data/handeye/             手眼标定样本
+data/collections/move_jog/ 原始 MoveJog episode 和 tape LeRobot 数据集
+data/collections/servo_p_v1/ 历史 ServoP 原始 episode 和 LeRobot 数据集
+data/collections/servo_p_v2/ 当前 pen-box 原始 episode、起始位和 LeRobot 数据集
+data/handeye/              手眼标定数据、样本和结果
 data/trajectories/        示教轨迹
 logs/system/run_*/        make system 的 launch、health、events 和节点日志
 logs/policy/              policy JSONL、可读文本日志和观测 artifacts
@@ -369,7 +370,7 @@ make data-status
 | `JOY_GRIPPER_FORCE` | `50` | 手柄夹爪命令的默认力百分比 |
 | `JOY_ENABLE_RUMBLE` | `true` | 夹爪检测到物体时尝试发送手柄震动反馈 |
 | `JOY_JOINT_LIMIT_MARGIN_DEG` | `5.0` | 任一关节距离软限位小于该角度时停止 jog |
-| `JOY_DATASET_ROOT` | `$(WS)/data_collection` | 手柄遥操作训练 episode 保存目录 |
+| `JOY_DATASET_ROOT` | `$(WS)/data/collections/move_jog` | 手柄遥操作训练 episode 保存目录 |
 | `JOY_DATA_SAMPLE_RATE_HZ` | `10.0` | 以同步图像对为基准保存训练 step 的频率 |
 | `JOY_MAX_IMAGE_SKEW_SEC` | `0.05` | 腕部与全局图像允许的最大时间戳差 |
 | `JOY_TASK_FILE` | `$(JOY_DATASET_ROOT)/current_task.txt` | `make data-task` 持久保存任务文本的位置 |
@@ -468,9 +469,9 @@ LeRobot 当前工具需要 Python 3.12，而 ROS2 Humble 节点使用 Python 3.1
 make data-task TASK:="pick up the tape roll"
 ```
 
-不带 `TASK` 执行 `make data-task` 可以查看当前任务。任务保存在 `data_collection/current_task.txt`，采集节点在每次按 Start 时重新读取，因此换任务不需要重启 `make joy`；已经开始的 episode 不会被中途改任务。任务为空时 Start 会拒绝采集，避免生成没有语言条件的训练 episode。
+不带 `TASK` 执行 `make data-task` 可以查看当前任务。任务保存在 `data/collections/move_jog/current_task.txt`，采集节点在每次按 Start 时重新读取，因此换任务不需要重启 `make joy`；已经开始的 episode 不会被中途改任务。任务为空时 Start 会拒绝采集，避免生成没有语言条件的训练 episode。
 
-ServoP 采集建议以固定起点运行：先执行 `make servo-data-task TASK:="pick up the tape roll"`，再使用 `make servo-collect` 启动。它等价于以 ServoP 和强制起始位校验启动 `make system`，并创建独立的 `data_collection_servo_p` 原始数据目录、LeRobot 数据集和起始位文件，防止混入旧的 MoveJog 数据。起始位由操作者确定：短按 RB 进入拖拽，手动移动到安全、张开夹爪的标准姿态，再短按 RB 退出拖拽；随后长按 X 1.5 秒后松开，服务只把当前六轴关节角、TCP、夹爪开度和保存时间写入 `data_collection_servo_p/servo_p_start_pose.json`，不发送运动指令。`make data-set-start` 保留为相同服务的终端调试入口。之后每条 episode 前长按 Start 1.5 秒后松开，或执行 `make data-prepare`，它才会显式 MoveJ 回到该姿态、恢复保存的夹爪开度并校验关节容差；拖拽未退出时会拒绝回位。完成后再短按 Start。未执行 prepare、机器人离开容差或仍在拖拽模式都会拒绝 Start，避免把复位过程和不同起点写入训练数据。第一次 Back 只结束录制并进入审核，机械臂保持当前位置；审核时无论接受还是拒绝，最终都会自动打开夹爪并 MoveJ 回保存的起点，回位过程和结果写入 `events.jsonl`。
+ServoP 采集建议以固定起点运行：先执行 `make servo-data-task TASK:="pick up the tape roll"`，再使用 `make servo-collect` 启动。它等价于以 ServoP 和强制起始位校验启动 `make system`，并在 `data/collections/servo_p_v2` 创建独立的原始数据目录、LeRobot 数据集和起始位文件，防止混入旧的 MoveJog 数据。起始位由操作者确定：短按 RB 进入拖拽，手动移动到安全、张开夹爪的标准姿态，再短按 RB 退出拖拽；随后长按 X 1.5 秒后松开，服务只把当前六轴关节角、TCP、夹爪开度和保存时间写入 `data/collections/servo_p_v2/servo_p_start_pose.json`，不发送运动指令。`make data-set-start` 保留为相同服务的终端调试入口。之后每条 episode 前长按 Start 1.5 秒后松开，或执行 `make data-prepare`，它才会显式 MoveJ 回到该姿态、恢复保存的夹爪开度并校验关节容差；拖拽未退出时会拒绝回位。完成后再短按 Start。未执行 prepare、机器人离开容差或仍在拖拽模式都会拒绝 Start，避免把复位过程和不同起点写入训练数据。第一次 Back 只结束录制并进入审核，机械臂保持当前位置；审核时无论接受还是拒绝，最终都会自动打开夹爪并 MoveJ 回保存的起点，回位过程和结果写入 `events.jsonl`。
 
 运行 `make joy` 并使能机器人后，单独按下再松开 Start 开始采集；完成一次操作后短按 Back。第一次 Back 等待原始图像队列清空并进入 `pending` 待审核状态，同时立即自动打开夹爪并 MoveJ 回保存的起点。确认质量合格后再次短按 Back，系统只把 LeRobot 转换任务放入后台队列并返回，不再重复回位；Qt 面板和 `make data-status` 可观察 `return_phase`、`export_phase`、当前 episode 和队列深度，后台完成后 metadata 才变为 `accepted`。质量不合格时长按 Back 2 秒，系统标记 `rejected`，保留原始数据但不进入 LeRobot，机械臂也不会再次移动。不要同时按 Start 和 Back；该组合键保留给限位恢复。
 
@@ -485,7 +486,7 @@ Start 会检查 LeRobot v3 环境、任务文本、机器人连接/反馈/使能
 每次采集先生成可恢复、可排障的原始 sidecar：
 
 ```text
-data_collection/episode_YYYYMMDD_HHMMSS/
+data/collections/move_jog/episode_YYYYMMDD_HHMMSS/
 ├── metadata.json
 ├── camera_info/
 │   ├── wrist.json
@@ -528,7 +529,7 @@ JOY_CONTROL_MODE=servo_p JOY_LEROBOT_ENABLED=false make system
 
 ```bash
 JOY_CONTROL_MODE=servo_p \
-JOY_LEROBOT_DATASET_ROOT="$(pwd)/data_collection/lerobot_tape_pi05_v2" \
+JOY_LEROBOT_DATASET_ROOT="$(pwd)/data/collections/move_jog/lerobot_tape_pi05_v2" \
 JOY_LEROBOT_REPO_ID="local/dobot_nova2_tape_pi05_v2" \
 make system
 ```
@@ -536,7 +537,7 @@ make system
 原始 sidecar 使用本仓库 `format_version=2`，用于断电恢复、相机内参和 ROS 诊断，不是训练入口。只有第二次短按 Back 接受后，同一 episode 才会追加到以下 LeRobot Dataset v3.0 数据集：
 
 ```text
-data_collection/lerobot_tape_pi05/
+data/collections/move_jog/lerobot_tape_pi05/
 ├── meta/
 │   ├── info.json
 │   ├── stats.json
@@ -559,7 +560,7 @@ data_collection/lerobot_tape_pi05/
 每个 episode 完成后可检查原始 sidecar：
 
 ```bash
-make data-validate EPISODE:=data_collection/episode_YYYYMMDD_HHMMSS
+make data-validate EPISODE:=data/collections/move_jog/episode_YYYYMMDD_HHMMSS
 ```
 
 检查正式 LeRobot 数据集：

@@ -140,7 +140,7 @@ def test_project_makefile_wraps_common_ros_workflows():
         "CAMERA_USB_PORT_ARG = $(if $(strip $(CAMERA_USB_PORT)),usb_port:=$(CAMERA_USB_PORT),)"
         in source
     )
-    assert "HANDEYE_DATASET_ROOT ?= handeye_datasets" in source
+    assert "HANDEYE_DATASET_ROOT ?= $(DATA_ROOT)/handeye/datasets" in source
     assert "HANDEYE_RESULT_FILE ?=" in source
     assert "HANDEYE_DIAGNOSE_FILE ?=" in source
     assert "HANDEYE_METHOD ?= TSAI" in source

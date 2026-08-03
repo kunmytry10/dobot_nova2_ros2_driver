@@ -675,7 +675,7 @@ class DobotMotionServer(Node):
             ik_use_joint_near=bool(self.declare_parameter("ik_use_joint_near", True).value),
             enable_on_start=bool(self.declare_parameter("enable_on_start", False).value),
             teach_trajectory_dir=str(
-                self.declare_parameter("teach_trajectory_dir", "/home/ros/ws/trajectories").value
+                self.declare_parameter("teach_trajectory_dir", "/home/ros/ws/data/trajectories").value
             ),
             teach_sample_rate_hz=float(
                 self.declare_parameter("teach_sample_rate_hz", 5.0).value

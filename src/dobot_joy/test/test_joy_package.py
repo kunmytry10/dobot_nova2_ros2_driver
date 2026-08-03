@@ -88,7 +88,7 @@ def test_makefile_exposes_joy_workflows():
     assert "JOY_RY_AXIS_SIGN ?= -1.0" in source
     assert "JOY_AUTOREPEAT_RATE ?= 50.0" in source
     assert "JOY_DIAGNOSTICS_TOPIC ?= /joy/teleop_diagnostics" in source
-    assert "JOY_DATASET_ROOT ?= $(WS)/data_collection" in source
+    assert "JOY_DATASET_ROOT ?= $(DATA_ROOT)/collections/move_jog" in source
     assert "JOY_TASK_FILE ?= $(JOY_DATASET_ROOT)/current_task.txt" in source
     assert "JOY_GLOBAL_IMAGE_TOPIC ?= /global_camera/color/image_raw" in source
     assert "JOY_LEROBOT_ENABLED ?= true" in source

@@ -50,7 +50,7 @@ class DataCollectionNode(Node):
     def __init__(self):
         super().__init__("dobot_data_collection")
         self.dataset_root = Path(
-            str(self.declare_parameter("dataset_root", "data_collection").value)
+            str(self.declare_parameter("dataset_root", "data/collections/move_jog").value)
         )
         self.wrist_image_topic = str(
             self.declare_parameter(

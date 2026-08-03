@@ -17,7 +17,7 @@ DEFAULT_HANDEYE_CONFIG = {
     "flange_frame": "Link6",
     "camera_frame": "camera_color_optical_frame",
     "board_frame": "handeye_board",
-    "samples_dir": "handeye_samples",
+    "samples_dir": "/home/ros/ws/data/handeye/samples",
     "result_file": "handeye_result.yaml",
     "board": {
         "type": "charuco",

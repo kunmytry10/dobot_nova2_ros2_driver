@@ -15,7 +15,7 @@ def generate_launch_description():
             DeclareLaunchArgument("autorepeat_rate", default_value="50.0"),
             DeclareLaunchArgument("start_data_collection", default_value="true"),
             DeclareLaunchArgument("start_operator_panel", default_value="false"),
-            DeclareLaunchArgument("dataset_root", default_value="data_collection"),
+            DeclareLaunchArgument("dataset_root", default_value="data/collections/move_jog"),
             DeclareLaunchArgument(
                 "wrist_image_topic", default_value="/camera/color/image_raw"
             ),

@@ -96,7 +96,7 @@ def save_result(result_file, matrix, sample_count, parent_frame, child_frame, me
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Solve Dobot eye-in-hand calibration")
     parser.add_argument("--dataset", default=None)
-    parser.add_argument("--samples-dir", default="handeye_samples")
+    parser.add_argument("--samples-dir", default="/home/ros/ws/data/handeye/samples")
     parser.add_argument("--result-file", default=None)
     parser.add_argument("--parent-frame", default="Link6")
     parser.add_argument("--child-frame", default="camera_color_optical_frame")

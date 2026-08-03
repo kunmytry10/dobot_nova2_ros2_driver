@@ -14,8 +14,8 @@ checkpoint：/home/ps/openpi-docker-data/checkpoints/
   pi05_dobot_pen_box_servo_p_action_only/
   dobot_pen_box_servo_p_action_only_v1_long/135000
 控制：ServoP（action-only，7 维，夹爪为打开/关闭二值目标）
-起始位：data_collection_servo_p_v2/servo_p_start_pose.json
-数据集：data_collection_servo_p_v2/lerobot_pi05_servo_p_v2
+起始位：data/collections/servo_p_v2/servo_p_start_pose.json
+数据集：data/collections/servo_p_v2/lerobot_pi05_servo_p_v2
 ```
 
 从 Dobot 仓库启动：
@@ -217,9 +217,14 @@ ROS policy 结构化日志：
 ```text
 /home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver/logs/policy/
   pi05_tape_grasp_YYYYMMDD_HHMMSS.jsonl
+  pi05_tape_grasp_YYYYMMDD_HHMMSS.log
 ```
 
 每条记录包含 inference 延迟、原始 action、安全解码结果、夹爪目标、队列长度、抓取检测和最终成功/失败原因。
+
+`.jsonl` 保留完整、可供脚本解析的事件字段；同名 `.log` 按 `时间 级别 事件 关键字段` 排列，
+适合现场直接阅读。终端通过 `RCUTILS_COLORIZED_OUTPUT=1` 对 INFO/WARN/ERROR 使用不同颜色，
+不会向 JSONL 或可读日志写入 ANSI 控制字符。
 
 每次运行还会创建同名 `_artifacts` 目录：
 

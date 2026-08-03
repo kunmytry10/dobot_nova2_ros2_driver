@@ -93,7 +93,7 @@ def generate_launch_description():
         DeclareLaunchArgument("joy_topic", default_value="/joy"),
         DeclareLaunchArgument("joy_dev", default_value="/dev/input/js0"),
         DeclareLaunchArgument("joy_autorepeat_rate", default_value="50.0"),
-        DeclareLaunchArgument("dataset_root", default_value="data_collection"),
+        DeclareLaunchArgument("dataset_root", default_value="data/collections/move_jog"),
         DeclareLaunchArgument("data_sample_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("collection_require_start_pose", default_value="false"),
         DeclareLaunchArgument("collection_start_pose_file", default_value=""),

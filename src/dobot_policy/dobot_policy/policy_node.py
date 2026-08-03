@@ -352,9 +352,10 @@ class DobotPolicyNode(Node):
                 "next_chunk_ready": self._next_actions is not None,
                 "current_axis": self._current_axis,
                 "servo_velocity": self._last_servo_velocity.round(6).tolist(),
-                "inference_inflight": self._inference_inflight,
-                "log": str(self._log_path),
-                "artifacts": str(self._artifact_dir),
+            "inference_inflight": self._inference_inflight,
+            "log": str(self._log_path),
+            "human_log": str(self._human_log_path),
+            "artifacts": str(self._artifact_dir),
             }
         response.success = True
         response.message = json.dumps(status, ensure_ascii=True)
@@ -968,12 +969,22 @@ class DobotPolicyNode(Node):
         message.data = line
         if hasattr(self, "diagnostics_pub"):
             self.diagnostics_pub.publish(message)
-        if event in {
+        operator_events = {
             "node_ready",
             "episode_started",
             "episode_finished",
-        }:
-            self.get_logger().info(line)
+            "inference_failed",
+            "gripper_state_unavailable",
+            "source_timeout",
+            "watchdog_stop",
+        }
+        if event in operator_events or event.endswith(("failed", "rejected")):
+            if event == "episode_finished" and not fields.get("success", False):
+                self.get_logger().error(human_line)
+            elif event.endswith(("failed", "rejected")):
+                self.get_logger().warning(human_line)
+            else:
+                self.get_logger().info(human_line)
 
     def destroy_node(self):
         self._finish(False, "node shutdown")
