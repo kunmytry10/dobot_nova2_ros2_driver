@@ -120,7 +120,7 @@ make policy-train
 训练脚本会自动启动 GPU 容器、计算 normalization stats，并在后台启动训练。输出位置为：
 
 ```text
-/home/ps/openpi-docker-data/checkpoints/<config>/<experiment>/
+/home/ps/DZK_repos/openpi-docker-data/checkpoints/<config>/<experiment>/
 ├── metrics.csv
 ├── training_curves.png
 ├── <step>/params
@@ -131,14 +131,14 @@ make policy-train
 文本日志：
 
 ```text
-/home/ps/openpi-docker-data/wandb/<experiment>.log
+/home/ps/DZK_repos/openpi-docker-data/wandb/<experiment>.log
 ```
 
 训练监控：
 
 ```bash
-tail -f /home/ps/openpi-docker-data/wandb/<experiment>.log
-watch -n 10 'tail -n 1 /home/ps/openpi-docker-data/checkpoints/<config>/<experiment>/metrics.csv'
+tail -f /home/ps/DZK_repos/openpi-docker-data/wandb/<experiment>.log
+watch -n 10 'tail -n 1 /home/ps/DZK_repos/openpi-docker-data/checkpoints/<config>/<experiment>/metrics.csv'
 watch -n 5 nvidia-smi
 ```
 

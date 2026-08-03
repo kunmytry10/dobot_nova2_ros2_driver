@@ -10,7 +10,7 @@
 ```text
 任务：pick the pen and put it in the box
 配置：pi05_dobot_pen_box_servo_p_action_only
-checkpoint：/home/ps/openpi-docker-data/checkpoints/
+checkpoint：/home/ps/DZK_repos/openpi-docker-data/checkpoints/
   pi05_dobot_pen_box_servo_p_action_only/
   dobot_pen_box_servo_p_action_only_v1_long/135000
 控制：ServoP（action-only，7 维，夹爪为打开/关闭二值目标）
