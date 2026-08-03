@@ -9,17 +9,18 @@ Dobot Nova2 的 ROS 2 Humble 驱动，以及当前 ServoP 数据采集、OpenPI 
 
 ```bash
 cd /home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver
-make build
-make lerobot-setup       # 首次采集执行一次
+source functions.zsh    # 自动打印函数用法
+dobot-build
+dobot-lerobot-setup      # 首次采集执行一次
 ```
 
 基础检查：
 
 ```bash
-make state
-make errors
-make gripper-state
-make camera-check
+dobot-state
+dobot-errors
+dobot-gripper-state
+dobot-camera-check
 ```
 
 ## 2. ServoP 采集配置
@@ -55,12 +56,12 @@ data/collections/servo_p_pen_box/
 ### 启动
 
 ```bash
-make servo-data-task
-make servo-collect
+dobot-servo-task
+dobot-servo-collect
 ```
 
 `servo-collect` 会启动 Dobot、双相机、ServoP 手柄控制、采集节点和 Qt 操作面板。不要同时运行
-`make joy`、`make camera` 或其它运动节点。
+`dobot-system`、`dobot-camera` 或其它运动节点。
 
 ### 保存起始位
 
@@ -92,8 +93,8 @@ Qt 面板显示关节曲线、action、夹爪状态、当前 episode 和 LeRobot
 采集状态和数据验收：
 
 ```bash
-make data-status
-make servo-data-lerobot-validate
+dobot-data-status
+dobot-data-validate
 ```
 
 训练前必须确认 LeRobot v3.0、10 FPS、state 13 维、action 7 维、双相机存在，且夹爪 action 的
@@ -114,7 +115,7 @@ make servo-data-lerobot-validate
 
 ```bash
 cd /home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver
-make policy-train
+dobot-policy-train
 ```
 
 训练脚本会自动启动 GPU 容器、计算 normalization stats，并在后台启动训练。输出位置为：
@@ -151,7 +152,7 @@ docker compose -f compose.yaml -f compose.gpu.yaml -f compose.dobot.yaml \
 ```
 
 继续训练时把 `OPENPI_TRAIN_RESUME=true`、`OPENPI_TRAIN_OVERWRITE=false` 写入配置后再次执行
-`make policy-train`。
+`dobot-policy-train`。
 
 ## 5. 一键部署 checkpoint
 
@@ -166,13 +167,13 @@ docker compose -f compose.yaml -f compose.gpu.yaml -f compose.dobot.yaml \
 
 ```bash
 cd /home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver
-make policy-dry-run
+dobot-policy-dry-run
 ```
 
 确认 Policy Server、双相机、state 和 `(16, 7)` action 正常后，启动真机：
 
 ```bash
-make policy-real
+dobot-policy-real
 ```
 
 启动流程会等待 Policy Server 健康、初始化夹爪、打开夹爪、MoveJ 回起始位，然后进入暖会话：
@@ -207,8 +208,8 @@ logs/policy/
 ```
 
 ```bash
-make logs-latest
-make policy-status
+dobot-logs-latest
+dobot-policy-status
 find logs/policy -maxdepth 1 -type f -printf '%T@ %p\n' | sort -n | tail
 ```
 
@@ -218,16 +219,16 @@ find logs/policy -maxdepth 1 -type f -printf '%T@ %p\n' | sort -n | tail
 ## 7. 基础安全命令
 
 ```bash
-make errors
-make clear
-make enable
-make disable
-make estop
-make recover-limit
+dobot-errors
+dobot-clear
+dobot-enable
+dobot-disable
+dobot-estop
+dobot-recover-limit
 ```
 
 实机测试始终保留物理急停；报警、相机掉线、夹爪未初始化或 Policy Server 不健康时不要启动
-`make policy-real`。
+`dobot-policy-real`。
 
 ## 相关文档
 
