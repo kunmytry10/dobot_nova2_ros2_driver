@@ -119,7 +119,7 @@ make control-ui # driver + robot_state_publisher + Web 控制台 + 可选手眼 
 ```bash
 cd /home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver
 OPENPI_DIR=/home/ps/DZK_repos/openpi
-DATASET_DIR=/home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver/data/servo_p_v2/lerobot_pi05_servo_p_v2
+DATASET_DIR=/home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver/data/collections/servo_p_v2/lerobot_pi05_servo_p_v2
 EXP_NAME=dobot_pen_box_servo_p_action_only_v1_long
 
 cd "$OPENPI_DIR"
@@ -148,7 +148,7 @@ export OPENPI_CHECKPOINT_CONTAINER_DIR=/workspace/checkpoints/pi05_dobot_pen_box
 make policy-real
 ```
 
-默认起始位是 `data/servo_p_v2/servo_p_start_pose.json`。脚本会启动或复用 OpenPI Policy
+默认起始位是 `data/collections/servo_p_v2/servo_p_start_pose.json`。脚本会启动或复用 OpenPI Policy
 Server，跳过已安装 ROS 包的重复构建，初始化夹爪并回到起点，然后进入暖会话：
 
 | 按键 | 动作 |
