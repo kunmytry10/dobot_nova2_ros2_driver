@@ -11,7 +11,8 @@ Dobot Nova2 的 ROS 2 Humble 驱动，以及当前 ServoP 数据采集、OpenPI 
 cd /home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver
 source functions.zsh    # 自动打印函数用法
 dobot-build
-dobot-lerobot-setup      # 首次采集执行一次
+# 仅当 .venv-lerobot 缺失、损坏或需要更新固定版本时执行：
+dobot-lerobot-setup
 ```
 
 基础检查：
@@ -55,23 +56,56 @@ data/collections/servo_p_pen_box/
 
 ### 启动
 
+终端 A：
+
 ```bash
 dobot-servo-task
 dobot-servo-collect
 ```
 
+`dobot-servo-collect` 会持续运行。将机械臂移动到期望的可重复起始位后，在终端 B 执行：
+
+```bash
+source /home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver/functions.zsh
+# Save the desired repeatable start pose once per collection directory.
+dobot-data-set-start
+# Before each episode, return to and validate that saved pose.
+dobot-data-prepare
+```
+
 `servo-collect` 会启动 Dobot、双相机、ServoP 手柄控制、采集节点和 Qt 操作面板。不要同时运行
 `dobot-system`、`dobot-camera` 或其它运动节点。
 
+### 可视化和控制入口
+
+| 目标 | 命令 | 使用边界 |
+|---|---|---|
+| ServoP 采集与 Qt 操作面板 | `dobot-servo-collect` | 采集默认入口，Qt 面板已经自动启动。 |
+| 双相机实时画面 | `dobot-servo-collect SYSTEM_VIEW=true` | 在采集进程中额外打开双相机画面。 |
+| 机械臂模型和 TF | `dobot-rviz` | 独立排障入口，会启动 driver/robot state publisher；不要与采集入口并行。 |
+| 独立控制台 | `dobot-control-ui` | 独立排障入口，会启动 driver；不要与采集入口并行。 |
+| 接入已有 driver 的控制台 | `dobot-control-ui-only` | 仅在已有 driver 已启动时使用；不要用它替代采集 Qt 面板。 |
+
+ServoP 默认启动相机，因此若 `data/handeye/handeye_result.yaml` 存在（或通过 `HANDEYE_STATIC_TF_FILE` 指定其他文件），
+系统会同时发布相机 TF。`dobot-tf` 可检查 `/tf` 与 `/tf_static`，`dobot-frames` 可导出完整 TF 树。
+
+### LeRobot 工具环境
+
+`dobot-lerobot-setup` 创建 `.venv-lerobot` 并安装固定版本的 `lerobot[dataset]`。当 episode 被接受后，采集节点会
+用该 Python 环境异步执行 LeRobot v3 导出；`dobot-data-validate` 也依赖同一环境。因此不能删除该命令，除非同时关闭
+LeRobot 导出并不再需要训练数据。已经存在可用的 `.venv-lerobot` 时无需重复执行它。
+
 ### 保存起始位
 
-新目录第一次使用时：
+新目录第一次使用时，`dobot-servo-collect` 已启动后：
 
 1. `Y` 使能机器人，确认夹爪张开。
 2. 按 `RB` 进入拖拽，把机械臂放到安全、可重复的标准姿态。
 3. 再按 `RB` 退出拖拽。
-4. 长按 `X` 1.5 秒后松开，保存起始位。
-5. 长按 `Start` 1.5 秒后松开，回到并校验起始位。
+4. 执行 `dobot-data-set-start` 保存起始位，或长按 `X` 1.5 秒后松开。
+5. 每条 episode 前执行 `dobot-data-prepare`，或长按 `Start` 1.5 秒后松开，回到并校验起始位。
+
+若未保存起始位，采集会被拒绝并提示 `prepare rejected`；这是 `COLLECTION_REQUIRE_START_POSE=true` 的预期保护行为。
 
 ### 每条 episode
 

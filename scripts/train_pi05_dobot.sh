@@ -14,10 +14,14 @@ source "${CONFIG_FILE}"
 set +a
 
 OPENPI_REPO_DIR="${OPENPI_REPO_DIR:-/home/ps/DZK_repos/openpi}"
+# Share the same Compose project as the real-policy commands. This reuses the
+# existing OpenPI development container instead of competing for policy port 8000.
+export OPENPI_COMPOSE_PROJECT_NAME="${OPENPI_COMPOSE_PROJECT_NAME:-openpi-dev-$(id -u)}"
 OPENPI_DOBOT_DATASET_DIR="${OPENPI_DOBOT_DATASET_DIR:?set OPENPI_DOBOT_DATASET_DIR in ${CONFIG_FILE}}"
 OPENPI_POLICY_CONFIG="${OPENPI_POLICY_CONFIG:?set OPENPI_POLICY_CONFIG in ${CONFIG_FILE}}"
 OPENPI_EXP_NAME="${OPENPI_EXP_NAME:?set OPENPI_EXP_NAME in ${CONFIG_FILE}}"
 OPENPI_TRAIN_STEPS="${OPENPI_TRAIN_STEPS:-1000000}"
+OPENPI_TRAIN_SAVE_INTERVAL="${OPENPI_TRAIN_SAVE_INTERVAL:-}"
 OPENPI_TRAIN_RESUME="${OPENPI_TRAIN_RESUME:-false}"
 OPENPI_TRAIN_OVERWRITE="${OPENPI_TRAIN_OVERWRITE:-false}"
 
@@ -26,20 +30,29 @@ case "${OPENPI_TRAIN_RESUME}:${OPENPI_TRAIN_OVERWRITE}" in
   *) echo "ERROR: resume and overwrite cannot both be true" >&2; exit 2 ;;
 esac
 
+if [[ -n "${OPENPI_TRAIN_SAVE_INTERVAL}" && ! "${OPENPI_TRAIN_SAVE_INTERVAL}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: OPENPI_TRAIN_SAVE_INTERVAL must be a positive integer" >&2
+  exit 2
+fi
+
 cd "${OPENPI_REPO_DIR}"
 export OPENPI_DOBOT_DATASET_DIR
 compose=(docker compose -f compose.yaml -f compose.gpu.yaml -f compose.dobot.yaml)
 "${compose[@]}" up -d openpi
 
 train_args=("--exp-name=${OPENPI_EXP_NAME}" "--num_train_steps=${OPENPI_TRAIN_STEPS}")
+if [[ -n "${OPENPI_TRAIN_SAVE_INTERVAL}" ]]; then
+  train_args+=("--save_interval=${OPENPI_TRAIN_SAVE_INTERVAL}")
+fi
 if [[ "${OPENPI_TRAIN_RESUME}" == true ]]; then
   train_args+=(--resume)
 else
   [[ "${OPENPI_TRAIN_OVERWRITE}" == true ]] && train_args+=(--overwrite)
 fi
 
-printf 'Training config: %s\nDataset: %s\nOutput: %s\n' \
+printf 'Training config: %s\nDataset: %s\nCheckpoint interval: %s steps\nOutput: %s\n' \
   "${OPENPI_POLICY_CONFIG}" "${OPENPI_DOBOT_DATASET_DIR}" \
+  "${OPENPI_TRAIN_SAVE_INTERVAL:-config default}" \
   "${OPENPI_REPO_DIR}/../openpi-docker-data/checkpoints/${OPENPI_POLICY_CONFIG}/${OPENPI_EXP_NAME}"
 
 if [[ "${OPENPI_TRAIN_RESUME}" == true ]]; then
