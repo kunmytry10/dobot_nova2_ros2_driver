@@ -271,6 +271,10 @@ class ServoStreamBusy(RuntimeError):
     """The non-blocking ServoP socket cannot accept a complete command now."""
 
 
+class ServoStreamDisconnected(ConnectionError):
+    """The controller closed the ServoP socket before the next command send."""
+
+
 @dataclass
 class TeachResult:
     """Normalized result for teach record/replay operations."""
@@ -469,7 +473,17 @@ class DobotController:
         if ensure_connected:
             self.connect()
         command = f"ServoP({_format_values(values)})"
-        raw_reply = self._send_move_streaming(command)
+        try:
+            raw_reply = self._send_move_streaming(command)
+        except ServoStreamDisconnected as exc:
+            # The disconnect was observed while draining old replies, before
+            # this command was sent, so retrying it once is not a duplicate.
+            self._log(
+                "ServoP socket closed before send; reconnecting move channel "
+                f"and retrying once: {exc}"
+            )
+            self._reconnect_move_client()
+            raw_reply = self._send_move_streaming(command)
         error_id = _reply_error_id(raw_reply)
         success = not raw_reply.strip() or error_id == 0
         return DashboardResult(
@@ -1813,7 +1827,7 @@ class DobotController:
             except BlockingIOError:
                 break
             if not reply:
-                raise ConnectionError("move socket closed by controller")
+                raise ServoStreamDisconnected("move socket closed by controller")
             replies.append(_as_text(reply))
         return replies
 

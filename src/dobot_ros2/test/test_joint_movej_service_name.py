@@ -15,6 +15,7 @@ from dobot_ros2.controller import (  # noqa: E402
     DobotController,
     MotionResult,
     ServoStreamBusy,
+    ServoStreamDisconnected,
     _format_error_details,
 )
 from dobot_ros2.gripper import DhAgGripper, DobotModbusAgGripper, GripperConfig, _crc  # noqa: E402
@@ -106,6 +107,52 @@ def test_servo_p_accepts_documented_no_reply_behavior():
 
     assert result.success
     assert result.raw_reply == ""
+
+
+def test_servo_p_reconnects_and_retries_when_socket_closed_before_send():
+    controller = DobotController(ControllerConfig())
+    calls = []
+
+    def fake_send(command):
+        calls.append(command)
+        if len(calls) == 1:
+            raise ServoStreamDisconnected("move socket closed by controller")
+        return ""
+
+    reconnects = []
+    controller.connect = lambda: None
+    controller._send_move_streaming = fake_send
+    controller._reconnect_move_client = lambda: reconnects.append(True)
+
+    result = controller.servo_p([100, 200, 300, 10, 20, 30])
+
+    assert result.success
+    assert len(calls) == 2
+    assert reconnects == [True]
+
+
+def test_servo_p_does_not_retry_partial_send_failure():
+    controller = DobotController(ControllerConfig())
+    calls = []
+    controller.connect = lambda: None
+
+    def fail_partial_send(command):
+        calls.append(command)
+        raise ConnectionError("partial send")
+
+    controller._send_move_streaming = fail_partial_send
+    controller._reconnect_move_client = lambda: calls.append("reconnect")
+
+    try:
+        controller.servo_p([100, 200, 300, 10, 20, 30])
+    except ConnectionError as exc:
+        assert str(exc) == "partial send"
+    else:
+        raise AssertionError("partial send failure must be reported")
+
+    assert calls == [
+        "ServoP(100.000000,200.000000,300.000000,10.000000,20.000000,30.000000)"
+    ]
 
 
 def test_prepared_servo_p_skips_per_tick_connect_check():
@@ -251,6 +298,20 @@ def test_streaming_reply_drain_is_bounded():
 
     assert len(replies) == 4
     assert socket_obj.reads == 4
+
+
+def test_streaming_reply_drain_reports_controller_disconnect():
+    class ClosedSocket:
+        def recv(self, size, flags=0):
+            del size, flags
+            return b""
+
+    try:
+        DobotController._drain_streaming_replies(ClosedSocket())
+    except ServoStreamDisconnected as exc:
+        assert str(exc) == "move socket closed by controller"
+    else:
+        raise AssertionError("closed streaming socket must be reported")
 
 
 def test_end_servo_stream_reconnects_move_channel():

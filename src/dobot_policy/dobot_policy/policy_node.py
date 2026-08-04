@@ -104,6 +104,12 @@ class DobotPolicyNode(Node):
         self.create_subscription(
             GripperStatus, "/gripper_state", self._on_gripper, 10
         )
+        self.create_subscription(
+            CartesianServoCommand,
+            "/cartesian_servo/applied",
+            self._on_servo_applied,
+            qos_profile_sensor_data,
+        )
         self._wrist_sub = message_filters.Subscriber(
             self,
             Image,
@@ -331,6 +337,15 @@ class DobotPolicyNode(Node):
         del request
         response.success, response.message = self._activate("service")
         return response
+
+    def _on_servo_applied(self, message):
+        if message.status != "transport failure":
+            return
+        with self._lock:
+            active = self._active
+        if active:
+            self._event("servo_transport_failure", status=message.status)
+            self._fail("ServoP transport failure")
 
     def _stop_service(self, request, response):
         del request

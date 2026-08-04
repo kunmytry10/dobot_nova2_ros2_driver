@@ -1,9 +1,11 @@
+import threading
 from types import SimpleNamespace
 
 import numpy as np
 from rclpy.clock import Clock
 
 from dobot_policy.policy_node import DobotPolicyNode
+from dobot_interfaces.msg import CartesianServoCommand
 
 
 class _Publisher:
@@ -40,6 +42,40 @@ def test_servo_command_publishes_normalized_velocity_and_explicit_stop():
     assert list(stop.normalized_velocity) == [0.0] * 6
     assert stop.active is False
     assert stop.deadman is False
+
+
+def test_servo_transport_failure_stops_active_episode():
+    failures = []
+    events = []
+    node = SimpleNamespace(
+        _lock=threading.RLock(),
+        _active=True,
+        _event=lambda *args, **kwargs: events.append((args, kwargs)),
+        _fail=lambda reason: failures.append(reason),
+    )
+    message = CartesianServoCommand()
+    message.status = "transport failure"
+
+    DobotPolicyNode._on_servo_applied(node, message)
+
+    assert failures == ["ServoP transport failure"]
+    assert events == [(('servo_transport_failure',), {'status': 'transport failure'})]
+
+
+def test_servo_transport_failure_is_ignored_when_episode_inactive():
+    failures = []
+    node = SimpleNamespace(
+        _lock=threading.RLock(),
+        _active=False,
+        _event=lambda *_args, **_kwargs: None,
+        _fail=lambda reason: failures.append(reason),
+    )
+    message = CartesianServoCommand()
+    message.status = "transport failure"
+
+    DobotPolicyNode._on_servo_applied(node, message)
+
+    assert failures == []
 
 
 def test_observation_artifacts_are_replayable(tmp_path):

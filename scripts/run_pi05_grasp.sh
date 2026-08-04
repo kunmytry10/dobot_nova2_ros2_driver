@@ -30,6 +30,8 @@ POLICY_REUSE_SERVER="${POLICY_REUSE_SERVER:-true}"
 POLICY_KEEP_SERVER="${POLICY_KEEP_SERVER:-true}"
 POLICY_STOP_SERVER_ONLY="${POLICY_STOP_SERVER_ONLY:-false}"
 POLICY_INTERACTIVE="${POLICY_INTERACTIVE:-true}"
+POLICY_PREFLIGHT_ATTEMPTS="${POLICY_PREFLIGHT_ATTEMPTS:-3}"
+POLICY_PREFLIGHT_RETRY_SEC="${POLICY_PREFLIGHT_RETRY_SEC:-1.0}"
 POLICY_LOG_DIR="${WORKSPACE_DIR}/logs/policy"
 SERVER_LOG="${OPENPI_DIR}/../openpi-docker-data/wandb/dobot_pen_box_servo_p_action_only_v1_long_deploy.log"
 SERVER_META_FILE="/tmp/openpi_pi05_policy_server_$(id -u).meta"
@@ -49,6 +51,10 @@ for boolean_name in \
     *) echo "ERROR: ${boolean_name} must be true or false" >&2; exit 2 ;;
   esac
 done
+if [[ ! "${POLICY_PREFLIGHT_ATTEMPTS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: POLICY_PREFLIGHT_ATTEMPTS must be a positive integer" >&2
+  exit 2
+fi
 if [[ "${POLICY_STOP_SERVER_ONLY}" != "true" \
       && "${POLICY_MOTION_ONLY}" == "true" \
       && "${POLICY_ARMED}" != "true" ]]; then
@@ -144,16 +150,29 @@ move_to_policy_start_pose() {
 }
 
 prepare_policy_start_state() {
-  call_service_checked "open gripper for policy start state" \
-    /gripper_move dobot_interfaces/srv/GripperCommand \
-    "{opening_mm: 95.0, position_permille: -1, force_percent: 50, force_n: -1.0, wait: true, timeout_sec: 8.0}"
-  verify_gripper_ready
-  move_to_policy_start_pose
-  # The gripper was verified immediately before the synchronous MoveJ, which
-  # cannot change its state. Give the Dobot request/reply channel time to settle
-  # before switching to the 33 Hz ServoP stream; an immediate Modbus read here
-  # can block while the controller changes motion modes.
-  sleep 1.5
+  local attempt
+  for ((attempt = 1; attempt <= POLICY_PREFLIGHT_ATTEMPTS; attempt++)); do
+    if call_service_checked "open gripper for policy start state" \
+        /gripper_move dobot_interfaces/srv/GripperCommand \
+        "{opening_mm: 95.0, position_permille: -1, force_percent: 50, force_n: -1.0, wait: true, timeout_sec: 8.0}"; then
+      # The Modbus command can return before the first fresh status sample.
+      sleep 0.5
+      if verify_gripper_ready && move_to_policy_start_pose; then
+        # Give the request/reply channel time to settle before switching to
+        # the 33 Hz ServoP stream.
+        sleep 1.5
+        return 0
+      fi
+    fi
+    if (( attempt < POLICY_PREFLIGHT_ATTEMPTS )); then
+      echo "WARN: policy start-state preflight failed " \
+        "(${attempt}/${POLICY_PREFLIGHT_ATTEMPTS}); retrying" >&2
+      sleep "${POLICY_PREFLIGHT_RETRY_SEC}"
+    fi
+  done
+  echo "ERROR: policy start-state preflight failed after " \
+    "${POLICY_PREFLIGHT_ATTEMPTS} attempts" >&2
+  return 1
 }
 
 wait_for_policy_episode() {
@@ -430,10 +449,13 @@ elif [[ "${POLICY_ARMED}" == "true" ]]; then
           timeout 4s ros2 service call /dobot_policy/stop \
             std_srvs/srv/Trigger "{}" >/dev/null 2>&1 || true
           sleep 0.3
-          prepare_policy_start_state
-          call_service_checked "start policy after start-state preflight" \
-            /dobot_policy/start std_srvs/srv/Trigger "{}"
-          echo "Policy episode running. Press r to interrupt and restart, or q to stop."
+          if prepare_policy_start_state \
+              && call_service_checked "start policy after start-state preflight" \
+                /dobot_policy/start std_srvs/srv/Trigger "{}"; then
+            echo "Policy episode running. Press r to interrupt and restart, or q to stop."
+          else
+            echo "Policy attempt did not start; warm session remains ready." >&2
+          fi
           printf '[r] run  [q] quit > '
           ;;
         q|Q)
