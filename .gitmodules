@@ -1,4 +1,4 @@
 [submodule "src/realsense-ros"]
 	path = src/realsense-ros
-	url = https://github.com/IntelRealSense/realsense-ros.git
+	url = https://github.com/realsenseai/realsense-ros.git
 	branch = ros2-master

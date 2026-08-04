@@ -5,7 +5,39 @@ Dobot Nova2 的 ROS 2 Humble 驱动，以及当前 ServoP 数据采集、OpenPI 
 
 ## 1. 准备环境
 
-默认环境：ROS 2 Humble、Orbbec workspace `~/orbbec_305`、Dobot 工作区和两台相机。
+默认环境：Ubuntu 22.04、ROS 2 Humble、NVIDIA GPU 驱动、Docker Engine、Docker Compose
+plugin、NVIDIA Container Toolkit、Dobot 工作区和两台相机。
+
+### 外部仓库和驱动
+
+本仓库只包含 Dobot 驱动、采集和调用入口。完整链路还依赖以下外部项目：
+
+| 依赖 | 上游来源 | 默认位置 | 用途 |
+|---|---|---|---|
+| OpenPI Docker 环境 | [QingTianRobot/openpi](https://github.com/QingTianRobot/openpi) | `/home/ps/DZK_repos/openpi` | pi0.5 训练、Policy Server 和 `openpi-client` |
+| Gemini 305 ROS 2 驱动 | [Yahboom Gemini 305 配套资料](https://www.yahboom.com/build.html?id=17247&cid=747) | `~/orbbec_305/src/OrbbecSDK_ROS2` | 腕部 Gemini 305 相机，提供 `orbbec_camera` |
+| RealSense ROS 2 驱动 | [realsenseai/realsense-ros](https://github.com/realsenseai/realsense-ros) | `src/realsense-ros` | 全局 D435 相机，提供 `realsense2_camera` |
+
+RealSense 驱动是本仓库的 Git submodule，当前固定在 4.58.3。首次克隆本仓库时使用
+`--recurse-submodules`，已有仓库则执行：
+
+```bash
+git submodule update --init --recursive
+```
+
+Gemini 305 驱动环境来自上述 Yahboom 配套资料，实际 workspace 中使用
+`OrbbecSDK_ROS2` 并提供 `orbbec_camera`。它不在本仓库中，需要在独立的
+`~/orbbec_305` workspace 中安装和构建；启动脚本会 source
+`~/orbbec_305/install/setup.bash`。如使用其他路径，通过 `ORBBEC_WS` 指定。
+
+OpenPI 也不在本仓库中，需要单独克隆上述 QingTianRobot fork。`dobot-policy-train` 和
+`dobot-policy-real` 会读取该仓库的 `compose.yaml`、`compose.gpu.yaml` 和
+`compose.dobot.yaml`。默认镜像 `openpi:dev` 由该仓库的 `scripts/docker/dev.Dockerfile`
+在本机构建，不是从本 Dobot 仓库提供的预构建镜像。如使用其他路径，通过
+`OPENPI_REPO_DIR` 指定。checkpoint、缓存和训练日志默认写入 OpenPI 同级的
+`openpi-docker-data/`，不会写入容器临时文件系统。
+
+准备好外部依赖后，再初始化本仓库：
 
 ```bash
 cd /home/ps/DZK_repos/dobot/dobot_nova2_ros2_driver
