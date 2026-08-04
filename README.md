@@ -3,7 +3,7 @@
 Dobot Nova2 的 ROS 2 Humble 驱动，以及当前 ServoP 数据采集、OpenPI Docker 训练和真机部署入口。
 机械臂相关命令都从本仓库执行，OpenPI 是外部训练/推理服务。
 
-## 1. 准备环境
+## 1. 环境准备
 
 默认环境：Ubuntu 22.04、ROS 2 Humble、NVIDIA GPU 驱动、Docker Engine、Docker Compose
 plugin、NVIDIA Container Toolkit、Dobot 工作区和两台相机。
@@ -12,11 +12,12 @@ plugin、NVIDIA Container Toolkit、Dobot 工作区和两台相机。
 
 本仓库只包含 Dobot 驱动、采集和调用入口。完整链路还依赖以下外部项目：
 
-| 依赖 | 上游来源 | 默认位置 | 用途 |
-|---|---|---|---|
-| OpenPI Docker 环境 | [QingTianRobot/openpi](https://github.com/QingTianRobot/openpi) | `/home/ps/DZK_repos/openpi` | pi0.5 训练、Policy Server 和 `openpi-client` |
-| Gemini 305 ROS 2 驱动 | [Yahboom Gemini 305 配套资料](https://www.yahboom.com/build.html?id=17247&cid=747) | `~/orbbec_305/src/OrbbecSDK_ROS2` | 腕部 Gemini 305 相机，提供 `orbbec_camera` |
-| RealSense ROS 2 驱动 | [realsenseai/realsense-ros](https://github.com/realsenseai/realsense-ros) | `src/realsense-ros` | 全局 D435 相机，提供 `realsense2_camera` |
+
+| 依赖                  | 上游来源                                                                           | 默认位置                          | 用途                                        |
+| --------------------- | ---------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------- |
+| OpenPI Docker 环境    | [QingTianRobot/openpi](https://github.com/QingTianRobot/openpi)                    | `/home/ps/DZK_repos/openpi`       | pi0.5 训练、Policy Server 和`openpi-client` |
+| Gemini 305 ROS 2 驱动 | [Yahboom Gemini 305 配套资料](https://www.yahboom.com/build.html?id=17247&cid=747) | `~/orbbec_305/src/OrbbecSDK_ROS2` | 腕部 Gemini 305 相机，提供`orbbec_camera`   |
+| RealSense ROS 2 驱动  | [realsenseai/realsense-ros](https://github.com/realsenseai/realsense-ros)          | `src/realsense-ros`               | 全局 D435 相机，提供`realsense2_camera`     |
 
 RealSense 驱动是本仓库的 Git submodule，当前固定在 4.58.3。首次克隆本仓库时使用
 `--recurse-submodules`，已有仓库则执行：
@@ -110,13 +111,14 @@ dobot-data-prepare
 
 ### 可视化和控制入口
 
-| 目标 | 命令 | 使用边界 |
-|---|---|---|
-| ServoP 采集与 Qt 操作面板 | `dobot-servo-collect` | 采集默认入口，Qt 面板已经自动启动。 |
-| 双相机实时画面 | `dobot-servo-collect SYSTEM_VIEW=true` | 在采集进程中额外打开双相机画面。 |
-| 机械臂模型和 TF | `dobot-rviz` | 独立排障入口，会启动 driver/robot state publisher；不要与采集入口并行。 |
-| 独立控制台 | `dobot-control-ui` | 独立排障入口，会启动 driver；不要与采集入口并行。 |
-| 接入已有 driver 的控制台 | `dobot-control-ui-only` | 仅在已有 driver 已启动时使用；不要用它替代采集 Qt 面板。 |
+
+| 目标                      | 命令                                   | 使用边界                                                                |
+| ------------------------- | -------------------------------------- | ----------------------------------------------------------------------- |
+| ServoP 采集与 Qt 操作面板 | `dobot-servo-collect`                  | 采集默认入口，Qt 面板已经自动启动。                                     |
+| 双相机实时画面            | `dobot-servo-collect SYSTEM_VIEW=true` | 在采集进程中额外打开双相机画面。                                        |
+| 机械臂模型和 TF           | `dobot-rviz`                           | 独立排障入口，会启动 driver/robot state publisher；不要与采集入口并行。 |
+| 独立控制台                | `dobot-control-ui`                     | 独立排障入口，会启动 driver；不要与采集入口并行。                       |
+| 接入已有 driver 的控制台  | `dobot-control-ui-only`                | 仅在已有 driver 已启动时使用；不要用它替代采集 Qt 面板。                |
 
 ServoP 默认启动相机，因此若 `data/handeye/handeye_result.yaml` 存在（或通过 `HANDEYE_STATIC_TF_FILE` 指定其他文件），
 系统会同时发布相机 TF。`dobot-tf` 可检查 `/tf` 与 `/tf_static`，`dobot-frames` 可导出完整 TF 树。
@@ -141,17 +143,18 @@ LeRobot 导出并不再需要训练数据。已经存在可用的 `.venv-lerobot
 
 ### 每条 episode
 
-| 操作 | 功能 |
-|---|---|
-| `Start` 短按 | 开始录制 |
-| `Start` 长按 | 回到起始位 |
-| `LB` | deadman，运动时保持按下 |
-| `LT` / `RT` / `A` | 夹爪关闭/打开/切换 |
+
+| 操作              | 功能                                   |
+| ----------------- | -------------------------------------- |
+| `Start` 短按      | 开始录制                               |
+| `Start` 长按      | 回到起始位                             |
+| `LB`              | deadman，运动时保持按下                |
+| `LT` / `RT` / `A` | 夹爪关闭/打开/切换                     |
 | `Back` 第一次短按 | 结束录制，打开夹爪并回起始位，进入审核 |
-| `Back` 第二次短按 | 接受并异步转换为 LeRobot |
-| `Back` 长按 2 秒 | 拒绝，保留原始数据 |
-| `B` | 急停 |
-| `X` 短按 | 清报警 |
+| `Back` 第二次短按 | 接受并异步转换为 LeRobot               |
+| `Back` 长按 2 秒  | 拒绝，保留原始数据                     |
+| `B`               | 急停                                   |
+| `X` 短按          | 清报警                                 |
 
 Qt 面板显示关节曲线、action、夹爪状态、当前 episode 和 LeRobot 转换队列。绿色表示成功，橙色
 表示排队/运行，红色表示失败。转换在后台执行，`Back` 不等待视频编码。
@@ -244,10 +247,11 @@ dobot-policy-real
 
 启动流程会等待 Policy Server 健康、初始化夹爪、打开夹爪、MoveJ 回起始位，然后进入暖会话：
 
-| 按键 | 功能 |
-|---|---|
-| `r` | 停止当前 episode，回起始位并重新运行 |
-| `q` / `Ctrl-C` | 停止 policy、停止运动并退出 |
+
+| 按键           | 功能                                 |
+| -------------- | ------------------------------------ |
+| `r`            | 停止当前 episode，回起始位并重新运行 |
+| `q` / `Ctrl-C` | 停止 policy、停止运动并退出          |
 
 首次实机运行必须握住物理急停，清空工作空间，不要并行运行手柄或其它运动节点。
 
@@ -295,9 +299,3 @@ dobot-recover-limit
 
 实机测试始终保留物理急停；报警、相机掉线、夹爪未初始化或 Policy Server 不健康时不要启动
 `dobot-policy-real`。
-
-## 相关文档
-
-- [OpenPI Docker 训练记录](../../openpi/docs/dobot_pi05_docker_training.md)
-- [pi0.5 实机部署记录](docs/pi05_policy_deployment.md)
-- [手柄/采集开发记录](docs/joystick_teleop_development.md)
