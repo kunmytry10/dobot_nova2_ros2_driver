@@ -369,6 +369,7 @@ dobot-frames
 `dobot-frames` 生成的 `frames_*.gv` 和 `frames_*.pdf` 仅用于本地排障，已加入忽略规则。需要查看
 相机链路时，重点检查 `Link6`、`camera_link` 和 `camera_color_optical_frame` 是否连通，并确认没有
 重复运行多个 driver 或静态 TF 发布节点。
+
 <img width="488" height="480" alt="2" src="https://github.com/user-attachments/assets/f623f0b7-e3c6-428d-b907-8ff29b976f36" />
 
 ## TF树
