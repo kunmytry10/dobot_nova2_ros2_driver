@@ -4,7 +4,7 @@ Dobot Nova2 的 ROS 2 Humble 驱动，以及当前 ServoP 数据采集、OpenPI 
 机械臂相关命令都从本仓库执行，OpenPI 是外部训练/推理服务。
 
 ## 效果展示
-<img width="426" height="240" alt="training" src="https://github.com/user-attachments/assets/345b95a4-ecf0-4b44-ac7e-1d13d2594f7c" /> <img width="426" height="240" alt="1" src="https://github.com/user-attachments/assets/e0813056-f104-42fb-84c0-5af5e946d313" />
+<img width="420" height="240" alt="training" src="https://github.com/user-attachments/assets/345b95a4-ecf0-4b44-ac7e-1d13d2594f7c" /> <img width="420" height="240" alt="1" src="https://github.com/user-attachments/assets/e0813056-f104-42fb-84c0-5af5e946d313" />
 
 
 ## 1. 环境准备
