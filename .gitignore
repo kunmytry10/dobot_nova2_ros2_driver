@@ -8,6 +8,10 @@ orbbec_305/
 data/
 logs/
 
+# Local notes and calibration outputs
+docs/
+handeye_result.yaml
+
 # TF frame graph outputs
 frames_*.gv
 frames_*.pdf

@@ -303,3 +303,66 @@ dobot-recover-limit
 
 实机测试始终保留物理急停；报警、相机掉线、夹爪未初始化或 Policy Server 不健康时不要启动
 `dobot-policy-real`。
+
+## 8. 补充功能
+
+### 手眼标定
+
+手眼标定实现位于 `src/dobot_handeye`，支持采集、求解、验证、诊断以及静态 TF 发布。标定数据和结果
+默认写入被 `.gitignore` 忽略的 `data/handeye/`，不会上传到仓库。
+
+```bash
+# 检查相机、TF 和参数是否就绪
+dobot-handeye-check
+
+# 采集一组标定姿态（需要先启动机械臂和相机）
+dobot-handeye-capture HANDEYE_DATASET_NAME=nova2_camera
+
+# 求解、验证和诊断
+dobot-handeye-solve DATASET=nova2_camera HANDEYE_RESULT_FILE=$PWD/data/handeye/handeye_result.yaml
+dobot-handeye-validate DATASET=nova2_camera HANDEYE_RESULT_FILE=$PWD/data/handeye/handeye_result.yaml
+dobot-handeye-diagnose DATASET=nova2_camera
+```
+
+启动 driver、相机或系统时，可通过 `HANDEYE_STATIC_TF_FILE` 指定结果文件；存在有效结果时，系统会
+发布 `Link6 -> camera_link` 的静态 TF。`dobot-handeye-tf` 可单独发布该变换，
+`dobot-handeye-board-tf` 可发布检测到的标定板 TF。
+
+### 键盘驱动
+
+`src/dobot_keyboard` 提供终端键盘控制和 Linux 输入设备控制两种入口。完整键盘控制会启动输入节点和
+teleop 节点；Jog 模式会读取 `/dev/input/event*` 并执行受限 jog。
+
+```bash
+# 终端键盘步进控制
+dobot-keyboard
+
+# Linux 输入设备 Jog（按实际设备修改）
+dobot-keyboard-jog KEYBOARD_DEV=/dev/input/event0
+```
+
+也可以分别启动 `dobot-keyboard-input`、`dobot-keyboard-jog-input` 和
+`dobot-keyboard-teleop`，并通过 `KEYBOARD_STEP_MM`、`KEYBOARD_ROT_STEP_DEG`、`SPEED`、
+`ACC` 等变量调整步长和运动参数。键盘控制前确认 driver 已启动、工作空间清空，并保留急停可用。
+
+### 控制 UI
+
+`dobot-control-ui` 启动 ROS driver、robot state publisher 和 Web 控制台；默认监听
+`http://localhost:8080`。页面提供机器人状态、关节和 TCP 位姿、夹爪控制、MoveJ/MoveL、示教轨迹和急停
+等操作。已有 driver 时使用 `dobot-control-ui-only`，避免重复启动运动节点；端口可通过
+`CONSOLE_PORT=8081 dobot-control-ui` 修改。
+
+### RViz 与 TF 树
+
+```bash
+# 启动模型、robot_state_publisher、RViz 和可用的手眼静态 TF
+dobot-rviz
+
+# 查看 TF 话题并生成完整 TF 树图
+dobot-tf
+dobot-frames
+```
+
+`dobot-frames` 生成的 `frames_*.gv` 和 `frames_*.pdf` 仅用于本地排障，已加入忽略规则。需要查看
+相机链路时，重点检查 `Link6`、`camera_link` 和 `camera_color_optical_frame` 是否连通，并确认没有
+重复运行多个 driver 或静态 TF 发布节点。
