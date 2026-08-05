@@ -327,6 +327,8 @@ dobot-handeye-diagnose DATASET=nova2_camera
 启动 driver、相机或系统时，可通过 `HANDEYE_STATIC_TF_FILE` 指定结果文件；存在有效结果时，系统会
 发布 `Link6 -> camera_link` 的静态 TF。`dobot-handeye-tf` 可单独发布该变换，
 `dobot-handeye-board-tf` 可发布检测到的标定板 TF。
+<img width="800" height="480" alt="手眼" src="https://github.com/user-attachments/assets/5620642a-ceea-4e11-b2d9-d2605d80c556" />
+
 
 ### 键盘驱动
 
@@ -351,6 +353,7 @@ dobot-keyboard-jog KEYBOARD_DEV=/dev/input/event0
 `http://localhost:8080`。页面提供机器人状态、关节和 TCP 位姿、夹爪控制、MoveJ/MoveL、示教轨迹和急停
 等操作。已有 driver 时使用 `dobot-control-ui-only`，避免重复启动运动节点；端口可通过
 `CONSOLE_PORT=8081 dobot-control-ui` 修改。
+<img width="800" height="480" alt="ui" src="https://github.com/user-attachments/assets/ba31b54d-ce78-4db8-87dd-7b585668ce67" />
 
 ### RViz 与 TF 树
 
@@ -366,3 +369,9 @@ dobot-frames
 `dobot-frames` 生成的 `frames_*.gv` 和 `frames_*.pdf` 仅用于本地排障，已加入忽略规则。需要查看
 相机链路时，重点检查 `Link6`、`camera_link` 和 `camera_color_optical_frame` 是否连通，并确认没有
 重复运行多个 driver 或静态 TF 发布节点。
+<img width="488" height="480" alt="2" src="https://github.com/user-attachments/assets/f623f0b7-e3c6-428d-b907-8ff29b976f36" />
+
+## TF树
+
+[tf.pdf](https://github.com/user-attachments/files/30737152/tf.pdf)
+
